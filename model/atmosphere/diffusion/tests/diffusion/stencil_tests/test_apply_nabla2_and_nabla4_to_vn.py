@@ -199,4 +199,4 @@ def test_apply_nabla2_and_nabla4_to_vn_cartesian(backend="gtfn_cpu"):
     # 7. Unpack structured back to unstructured and Verify
     actual_vn_np = unpack_edge_field(vn_f.asnumpy(), index_map, n_edges)
     
-    np.testing.assert_allclose(actual_vn_np, expected_vn_np, rtol=1e-12, atol=1e-14)
+    np.testing.assert_allclose(actual_vn_np, expected_vn_np, rtol=1e-12, atol=0)
