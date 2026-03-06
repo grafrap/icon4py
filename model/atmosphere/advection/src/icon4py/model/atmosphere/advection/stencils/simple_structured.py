@@ -23,7 +23,7 @@ from icon4py.model.common.dimension import IDim, JDim, Kolor
 
 @gtx.field_operator
 def compute_zavgS_cartesian_0(
-    pp: gtx.Field[[IDim, JDim], float],
+    pp: gtx.Field[[IDim, JDim, Kolor], float],
     S_M: gtx.Field[[IDim, JDim, Kolor], float],
     domain_max_j: gtx.int32,
 ) -> gtx.Field[[IDim, JDim, Kolor], float]:
@@ -37,21 +37,21 @@ def compute_zavgS_cartesian_0(
 
 @gtx.field_operator
 def compute_zavgS_cartesian_1(
-    pp: gtx.Field[[IDim, JDim], float],
+    pp: gtx.Field[[IDim, JDim, Kolor], float],
     S_M: gtx.Field[[IDim, JDim, Kolor], float],
     domain_max_i: gtx.int32,
 ) -> gtx.Field[[IDim, JDim, Kolor], float]:
     zavg = 0.5 * concat_where(
         IDim == domain_max_i - 1,
-        pp,
-        pp + pp(IDim + 1))
+        pp(Kolor-1),
+        pp(Kolor-1) + pp(IDim + 1)(Kolor-1))
     # zavg = 0.5 * (pp + pp(IDim + 1))
     return S_M * zavg
 
 
 @gtx.field_operator
 def compute_zavgS_cartesian_2(
-    pp: gtx.Field[[IDim, JDim], float],
+    pp: gtx.Field[[IDim, JDim, Kolor], float],
     S_M: gtx.Field[[IDim, JDim, Kolor], float],
     domain_max_i: gtx.int32,
     domain_max_j: gtx.int32,
@@ -59,11 +59,12 @@ def compute_zavgS_cartesian_2(
     zavg = 0.5 * concat_where(
         IDim == domain_max_i - 1, concat_where(
             JDim == domain_max_j - 1,
-            pp-pp,
-            pp + pp(JDim + 1)),
+            0.0,
+            pp(Kolor-2) + pp(JDim + 1)(Kolor-2)),
         concat_where(JDim == domain_max_j - 1,
-            pp(IDim + 1), pp(IDim + 1) + pp(JDim + 1))
-    )
+            pp(IDim + 1)(Kolor-2), pp(IDim + 1)(Kolor-2) + pp(JDim + 1)(Kolor-2))
+	)
+    
     # zavg = 0.5 * (pp(IDim + 1) + pp(JDim + 1))
     return S_M * zavg
 
@@ -81,47 +82,47 @@ def on_edges(
 
 @gtx.field_operator
 def compute_zavgS_cartesian(
-    pp: gtx.Field[[IDim, JDim], float],
+    pp: gtx.Field[[IDim, JDim, Kolor], float],
     S_M: gtx.Field[[IDim, JDim, Kolor], float],
     domain_max_i: gtx.int32,
     domain_max_j: gtx.int32,
 ) -> gtx.Field[[IDim, JDim, Kolor], float]:
 
-    return on_edges(
-        compute_zavgS_cartesian_0(pp, S_M, domain_max_j),
-        compute_zavgS_cartesian_1(pp, S_M, domain_max_i),
-        compute_zavgS_cartesian_2(pp, S_M, domain_max_i, domain_max_j),
-    )
-
-@gtx.program
-def zavg(
-    pp: gtx.Field[[IDim, JDim], float],
-    S_M: gtx.Field[[IDim, JDim, Kolor], float],
-    out: gtx.Field[[IDim, JDim, Kolor], float],
-    domain_max_i: gtx.int32,
-    domain_max_j: gtx.int32,
-    domain_max_kolor: gtx.int32,
-
-):
-    compute_zavgS_cartesian(
-        pp,
-        S_M,
-        domain_max_i,
-        domain_max_j,
-        out=out,
-        domain={IDim: (0, domain_max_i), JDim: (0, domain_max_j)},
+	return on_edges(
+		compute_zavgS_cartesian_0(pp, S_M, domain_max_j),
+		compute_zavgS_cartesian_1(pp, S_M, domain_max_i),
+		compute_zavgS_cartesian_2(pp, S_M, domain_max_i, domain_max_j),
 	)
+
+# @gtx.program
+# def zavg(
+#     pp: gtx.Field[[IDim, JDim, Kolor], float],
+#     S_M: gtx.Field[[IDim, JDim, Kolor], float],
+#     out: gtx.Field[[IDim, JDim, Kolor], float],
+#     domain_max_i: gtx.int32,
+#     domain_max_j: gtx.int32,
+#     domain_max_kolor: gtx.int32,
+
+# ):
+#     compute_zavgS_cartesian(
+#         pp,
+#         S_M,
+#         domain_max_i,
+#         domain_max_j,
+#         out=out,
+#         domain={IDim: (0, domain_max_i), JDim: (0, domain_max_j)},
+# 	)
 
 
 @gtx.field_operator
 def _compute_pnabla_cartesian(
-	pp: gtx.Field[gtx.Dims[IDim, JDim], ta.wpfloat],
+	pp: gtx.Field[gtx.Dims[IDim, JDim, Kolor], ta.wpfloat],
 	S_M: gtx.Field[gtx.Dims[IDim, JDim, Kolor], ta.wpfloat],
 	sign: gtx.Field[gtx.Dims[IDim, JDim, Kolor], ta.wpfloat],
-	vol: gtx.Field[gtx.Dims[IDim, JDim], ta.wpfloat],
+	vol: gtx.Field[gtx.Dims[IDim, JDim, Kolor], ta.wpfloat],
 	domain_max_i: gtx.int32,
     domain_max_j: gtx.int32,
-) -> gtx.Field[gtx.Dims[IDim, JDim],	 ta.wpfloat]:
+) -> gtx.Field[gtx.Dims[IDim, JDim, Kolor],	 ta.wpfloat]:
 	zavg_s = compute_zavgS_cartesian(pp, S_M, domain_max_i, domain_max_j)
 	pnabla_color = concat_where(
 		Kolor == 0,
@@ -141,10 +142,10 @@ def _compute_pnabla_cartesian(
 
 @gtx.field_operator
 def _compute_pnabla_cartesian_direct(
-	pp: gtx.Field[gtx.Dims[IDim, JDim], ta.wpfloat],
+	pp: gtx.Field[gtx.Dims[IDim, JDim, Kolor], ta.wpfloat],
 	S_M: gtx.Field[gtx.Dims[IDim, JDim, Kolor], ta.wpfloat],
 	sign: gtx.Field[gtx.Dims[IDim, JDim, Kolor], ta.wpfloat],
-	vol: gtx.Field[gtx.Dims[IDim, JDim], ta.wpfloat],
+	vol: gtx.Field[gtx.Dims[IDim, JDim, Kolor], ta.wpfloat],
 	domain_max_i: gtx.int32,
     domain_max_j: gtx.int32,
 ) -> gtx.Field[gtx.Dims[IDim, JDim, Kolor],	 ta.wpfloat]:
@@ -187,16 +188,16 @@ def _compute_pnabla_cartesian_direct(
 
 @gtx.program
 def compute_pnabla_cartesian(
-	pp: gtx.Field[gtx.Dims[IDim, JDim], ta.wpfloat],
+	pp: gtx.Field[gtx.Dims[IDim, JDim, Kolor], ta.wpfloat],
 	S_M: gtx.Field[gtx.Dims[IDim, JDim, Kolor], ta.wpfloat],
 	sign: gtx.Field[gtx.Dims[IDim, JDim, Kolor], ta.wpfloat],
-	vol: gtx.Field[gtx.Dims[IDim, JDim], ta.wpfloat],
+	vol: gtx.Field[gtx.Dims[IDim, JDim, Kolor], ta.wpfloat],
 	out: gtx.Field[gtx.Dims[IDim, JDim, Kolor], ta.wpfloat],
 	domain_max_i: gtx.int32,
 	domain_max_j: gtx.int32,
 	domain_max_kolor: gtx.int32,
 ):
-	_compute_pnabla_cartesian_direct(
+	_compute_pnabla_cartesian( # _direct(
 		pp,
 		S_M,
 		sign,
@@ -249,7 +250,7 @@ def _run_demo() -> None:
 
 	print("Edges East:", edges_east, "\n2D version:\n", edges_east_2d)
 
-	pp_2d = raw_vertices.reshape((ny + 1, nx + 1))    # Shape: [nx+1, ny+1]
+	pp_2d = raw_vertices.reshape((ny + 1, nx + 1, 1))    # Shape: [nx+1, ny+1, 1]
 
 	# To stack them in one field
 
@@ -265,20 +266,20 @@ def _run_demo() -> None:
 	S_M_field[0:ny, 0:nx, 2]   = edges_se_2d
 
 	# Prepare Vertices (pp)
-	pp_field = np.zeros((max_i, max_j))
-	pp_field[:, :] = pp_2d
+	pp_field = np.zeros((max_i, max_j, 1))
+	pp_field[:, :,:] = pp_2d
 
-	pp = gtx.as_field([IDim, JDim], pp_2d)
+	pp = gtx.as_field([IDim, JDim, Kolor], pp_2d)
 	S_M = gtx.as_field([IDim, JDim, Kolor], S_M_field)
 
-	vol = np.ones((max_i, max_j))
+	vol = np.ones((max_i, max_j, 1))
 	sign = np.ones((max_i, max_j, 3))
-	vol_field = gtx.as_field([IDim, JDim], vol)
+	vol_field = gtx.as_field([IDim, JDim, Kolor], vol)
 	sign_field = gtx.as_field([IDim, JDim, Kolor], sign)
 
 	pnabla_out = gtx.as_field([IDim, JDim,Kolor], np.zeros((max_i, max_j,1)))
 	from gt4py.next.program_processors.runners.dace import run_dace_cpu
-	backend = customize_backend(compute_zavgS_cartesian, model_backends.BACKENDS["dace_cpu"])
+	backend = customize_backend(compute_zavgS_cartesian, model_backends.BACKENDS["gtfn_cpu"])
 	# run_zavg = setup_program(
 	# 	program=compute_zavgS_cartesian,
 	# 	backend=run_dace_cpu,

@@ -11,17 +11,14 @@ from icon4py.model.atmosphere.dycore.stencils.update_mass_flux_weighted import (
 from icon4py.model.common import dimension as dims
 
 def test_update_mass_flux_weighted_cart():
-    # 1. Setup Domain Sizes
     nx, ny, nz = 10, 10, 5
     color_size = 2
     
-    # 2. Define Backends (GT4Py usually requires a backend, e.g. 'numpy', 'gt:cpu_ifirst')
     # Using simple numpy backend for functional verification
     from gt4py.next.program_processors.runners.dace import run_dace_cpu
 
     backend = run_dace_cpu
 
-    # 3. Create Input Arrays (NumPy)
     # Shape: (IDim, JDim, Kolor, KDim) -> (nx, ny, 2, nz)
     shape_k = (nx, ny, color_size, nz)
     shape_no_k = (nx, ny, color_size)
@@ -37,7 +34,6 @@ def test_update_mass_flux_weighted_cart():
     
     r_nsubsteps = 0.5
 
-    # 4. Compute Reference (NumPy)
     # Broadcast weights to K dimension for calculation
     vwind_expl_wgt_k = vwind_expl_wgt[..., np.newaxis]
     vwind_impl_wgt_k = vwind_impl_wgt[..., np.newaxis]
@@ -50,7 +46,6 @@ def test_update_mass_flux_weighted_cart():
         )
     )
 
-    # 5. Run GT4Py Program
     # We copy mass_flx_ic because 'out' argument modifies it in-place
     mass_flx_ic_gt = gtx.as_field((IDim, JDim, Kolor, dims.KDim), mass_flx_ic, allocator=backend.allocator)
     rho_ic_gt = gtx.as_field((IDim, JDim, Kolor, dims.KDim), rho_ic, allocator=backend.allocator)
@@ -79,7 +74,6 @@ def test_update_mass_flux_weighted_cart():
         offset_provider={} # No neighbors accessed
     )
 
-    # 6. Verify
     assert np.allclose(mass_flx_ic_gt.asnumpy(), expected)
 
 if __name__ == "__main__":

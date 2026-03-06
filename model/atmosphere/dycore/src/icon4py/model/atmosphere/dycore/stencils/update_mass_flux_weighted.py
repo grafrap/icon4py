@@ -63,10 +63,7 @@ def update_mass_flux_weighted(
         },
     )
 
-# New function for a structured cartesian grid, which will have a virtual dimension telling if 
-# it is a up or down triangle on the grid. 
-# q: how can i go from fa.CellKField to something that has a virtual dimension? 
-# a: we can define a new type alias for a field with a virtual dimension
+
 
 IDim = gtx.Dimension("IDim")
 JDim = gtx.Dimension("JDim")
