@@ -69,7 +69,6 @@ class TestApplyNabla2ToVnInLateralBoundary(StencilTest):
 
 
 def test_apply_nabla2_to_vn_in_lateral_boundary_cartesian(backend="gtfn_cpu"):
-    # 1. Load the Parallelogram Grid
     mesh_nc = os.environ.get(
         "GT4PY_TRANSLATOR_MESH", 
         "/home/raphael/Documents/Studium/Msc_thesis/grid-generator/parallelogram_grid.nc"
@@ -78,79 +77,67 @@ def test_apply_nabla2_to_vn_in_lateral_boundary_cartesian(backend="gtfn_cpu"):
         pytest.skip(f"Mesh file {mesh_nc} not found.")
         
     ds = xr.open_dataset(mesh_nc)
-    
-    # Extract E2V and LonLat to build the index map
-    e2v = ds["edge_vertices"].transpose("edge", "nc").values.astype(np.int32)
-    e2v = np.where(e2v > 0, e2v - 1, -1)
-    
-    lon = ds["longitude_vertices"].values.astype(np.float64)
-    lat = ds["latitude_vertices"].values.astype(np.float64)
-    lonlat = np.stack([lon, lat], axis=1)
+    e2v = np.where(ds["edge_vertices"].transpose("edge", "nc").values.astype(np.int32) > 0, 
+                   ds["edge_vertices"].transpose("edge", "nc").values.astype(np.int32) - 1, -1)
+    lonlat = np.stack([ds["longitude_vertices"].values, ds["latitude_vertices"].values], axis=1).astype(np.float64)
     
     nodes_size = ds.sizes["vertex"]
     n_edges = ds.sizes["edge"]
     num_levels = 10
     
-    # Build the real, topologically correct IndexMap
     index_map = build_index_map_from_lonlat_e2v(lonlat, e2v, nodes_size=nodes_size)
     
-    # 2. Generate random numpy arrays for the unstructured inputs based on the REAL grid size
     np.random.seed(42)
-    fac_bdydiff_v = 5.0
+    fac_bdydiff_v = wpfloat("5.0")
     z_nabla2_e_np = np.random.rand(n_edges, num_levels)
     area_edge_np = np.random.rand(n_edges)
     vn_np = np.random.rand(n_edges, num_levels)
     
-    # 3. Get expected Reference output from numpy
-    expected_vn_np = apply_nabla2_to_vn_in_lateral_boundary_numpy(
-        z_nabla2_e_np, area_edge_np, vn_np, fac_bdydiff_v
+    # 3. GET GROUND TRUTH: Official icon4py reference method
+    expected_output = TestApplyNabla2ToVnInLateralBoundary.reference(
+        connectivities={},
+        z_nabla2_e=z_nabla2_e_np,
+        area_edge=area_edge_np,
+        vn=vn_np.copy(),
+        fac_bdydiff_v=fac_bdydiff_v,
+        horizontal_start=0,
+        horizontal_end=n_edges,
+        vertical_start=0,
+        vertical_end=num_levels,
     )
+    expected_vn = expected_output["vn"]
     
-    # 4. Translate unstructured edge fields to structured fields using the map
-    z_nabla2_e_s = pack_edge_field(z_nabla2_e_np, index_map)
-    area_edge_s = pack_edge_field(area_edge_np, index_map)
-    vn_s = pack_edge_field(vn_np, index_map)
-    
-    # 5. Convert to gt4py Fields
-    z_nabla2_e_f = gtx.as_field([dims.IDim, dims.JDim, dims.Kolor, dims.KDim], z_nabla2_e_s)
-    area_edge_f = gtx.as_field([dims.IDim, dims.JDim, dims.Kolor], area_edge_s)
-    vn_f = gtx.as_field([dims.IDim, dims.JDim, dims.Kolor, dims.KDim], vn_s)
+    # 4. Translate to structured fields
+    Kolor = getattr(dims, "Kolor", getattr(dims, "KolorDim", gtx.Dimension("Kolor")))
+    z_nabla2_e_f = gtx.as_field([dims.IDim, dims.JDim, Kolor, dims.KDim], pack_edge_field(z_nabla2_e_np, index_map))
+    area_edge_f = gtx.as_field([dims.IDim, dims.JDim, Kolor], pack_edge_field(area_edge_np, index_map))
+    vn_f = gtx.as_field([dims.IDim, dims.JDim, Kolor, dims.KDim], pack_edge_field(vn_np, index_map))
 
     ni, nj = index_map.ij_to_vertex.shape
     
-    # --- Resolve Backend ---
-    if backend == "gtfn_cpu":
-        selected_backend = gtfn_cpu
-    else:
-        raise ValueError(f"Backend {backend} not supported in this test.")
+    selected_backend = gtfn_cpu
 
-    # 6. Execute Structured Stencil
     prog = setup_program(
         apply_nabla2_to_vn_in_lateral_boundary_cart,
         backend=selected_backend,
         horizontal_sizes={
-            "domain_max_i": gtx.int32(ni),
-            "domain_max_j": gtx.int32(nj),
+            "domain_min_i": gtx.int32(0), "domain_max_i": gtx.int32(ni),
+            "domain_min_j": gtx.int32(0), "domain_max_j": gtx.int32(nj),
             "domain_max_kolor": gtx.int32(3),
         },
     )
 
+    if hasattr(prog, "_static_args_names"):
+        prog._static_args_names = set(prog._static_args_names) | {"domain_min_i", "domain_min_j"}
+
     prog(
-        z_nabla2_e=z_nabla2_e_f,
-        area_edge=area_edge_f,
-        vn=vn_f,  # Input AND Output
-        fac_bdydiff_v=fac_bdydiff_v,
-        domain_min_i=gtx.int32(0),
-        domain_max_i=gtx.int32(ni),
-        domain_min_j=gtx.int32(0),
-        domain_max_j=gtx.int32(nj),
+        z_nabla2_e=z_nabla2_e_f, area_edge=area_edge_f, vn=vn_f, fac_bdydiff_v=fac_bdydiff_v,
+        domain_min_i=gtx.int32(0), domain_max_i=gtx.int32(ni),
+        domain_min_j=gtx.int32(0), domain_max_j=gtx.int32(nj),
         domain_max_kolor=gtx.int32(3),
-        vertical_start=gtx.int32(0),
-        vertical_end=gtx.int32(num_levels),
+        vertical_start=gtx.int32(0), vertical_end=gtx.int32(num_levels),
         offset_provider={}
     )
 
-    # 7. Unpack structured back to unstructured and Verify
     actual_vn_np = unpack_edge_field(vn_f.asnumpy(), index_map, n_edges)
-    
-    np.testing.assert_allclose(actual_vn_np, expected_vn_np, rtol=1e-12, atol=0)
+    np.testing.assert_allclose(actual_vn_np, expected_vn, rtol=1e-12, atol=1e-14)

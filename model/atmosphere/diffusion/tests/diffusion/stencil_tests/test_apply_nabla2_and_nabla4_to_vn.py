@@ -104,7 +104,6 @@ class TestApplyNabla2AndNabla4ToVn(StencilTest):
 
 
 def test_apply_nabla2_and_nabla4_to_vn_cartesian(backend="gtfn_cpu"):
-    # 1. Load the Parallelogram Grid
     mesh_nc = os.environ.get(
         "GT4PY_TRANSLATOR_MESH", 
         "/home/raphael/Documents/Studium/Msc_thesis/grid-generator/parallelogram_grid.nc"
@@ -113,23 +112,16 @@ def test_apply_nabla2_and_nabla4_to_vn_cartesian(backend="gtfn_cpu"):
         pytest.skip(f"Mesh file {mesh_nc} not found.")
         
     ds = xr.open_dataset(mesh_nc)
-    
-    # Extract E2V and LonLat to build the index map
-    e2v = ds["edge_vertices"].transpose("edge", "nc").values.astype(np.int32)
-    e2v = np.where(e2v > 0, e2v - 1, -1)
-    
-    lon = ds["longitude_vertices"].values.astype(np.float64)
-    lat = ds["latitude_vertices"].values.astype(np.float64)
-    lonlat = np.stack([lon, lat], axis=1)
+    e2v = np.where(ds["edge_vertices"].transpose("edge", "nc").values.astype(np.int32) > 0, 
+                   ds["edge_vertices"].transpose("edge", "nc").values.astype(np.int32) - 1, -1)
+    lonlat = np.stack([ds["longitude_vertices"].values, ds["latitude_vertices"].values], axis=1).astype(np.float64)
     
     nodes_size = ds.sizes["vertex"]
     n_edges = ds.sizes["edge"]
-    num_levels = 10 # Since the netCDF is 2D, we arbitrarily pick 10 vertical levels for the test
+    num_levels = 10 
     
-    # Build the real, topologically correct IndexMap
     index_map = build_index_map_from_lonlat_e2v(lonlat, e2v, nodes_size=nodes_size)
     
-    # 2. Generate random numpy arrays for the unstructured inputs based on the REAL grid size
     np.random.seed(42)
     area_edge_np = np.random.rand(n_edges)
     kh_smag_e_np = np.random.rand(n_edges, num_levels)
@@ -138,65 +130,61 @@ def test_apply_nabla2_and_nabla4_to_vn_cartesian(backend="gtfn_cpu"):
     diff_multfac_vn_np = np.random.rand(num_levels)
     nudgecoeff_e_np = np.random.rand(n_edges)
     vn_np = np.random.rand(n_edges, num_levels)
-    nudgezone_diff = 9.0
+    nudgezone_diff = vpfloat("9.0")
     
-    # 3. Get expected Reference output from numpy
-    expected_vn_np = apply_nabla2_and_nabla4_to_vn_numpy(
-        area_edge_np, kh_smag_e_np, z_nabla2_e_np, z_nabla4_e2_np, 
-        diff_multfac_vn_np, nudgecoeff_e_np, vn_np, nudgezone_diff
+    # 3. GET GROUND TRUTH: Official icon4py reference method
+    expected_output = TestApplyNabla2AndNabla4ToVn.reference(
+        connectivities={},
+        area_edge=area_edge_np,
+        kh_smag_e=kh_smag_e_np,
+        z_nabla2_e=z_nabla2_e_np,
+        z_nabla4_e2=z_nabla4_e2_np,
+        diff_multfac_vn=diff_multfac_vn_np,
+        nudgecoeff_e=nudgecoeff_e_np,
+        vn=vn_np.copy(),
+        nudgezone_diff=nudgezone_diff,
+        horizontal_start=0,
+        horizontal_end=n_edges,
+        vertical_start=0,
+        vertical_end=num_levels,
     )
+    expected_vn = expected_output["vn"]
     
-    # 4. Translate unstructured edge fields to structured fields using the real map
-    area_edge_s = pack_edge_field(area_edge_np, index_map)
-    kh_smag_e_s = pack_edge_field(kh_smag_e_np, index_map)
-    z_nabla2_e_s = pack_edge_field(z_nabla2_e_np, index_map)
-    z_nabla4_e2_s = pack_edge_field(z_nabla4_e2_np, index_map)
-    nudgecoeff_e_s = pack_edge_field(nudgecoeff_e_np, index_map)
-    vn_s = pack_edge_field(vn_np, index_map)
-    
-    # 5. Convert to gt4py Fields
-    area_edge_f = gtx.as_field([dims.IDim, dims.JDim, dims.Kolor], area_edge_s)
-    kh_smag_e_f = gtx.as_field([dims.IDim, dims.JDim, dims.Kolor, dims.KDim], kh_smag_e_s)
-    z_nabla2_e_f = gtx.as_field([dims.IDim, dims.JDim, dims.Kolor, dims.KDim], z_nabla2_e_s)
-    z_nabla4_e2_f = gtx.as_field([dims.IDim, dims.JDim, dims.Kolor, dims.KDim], z_nabla4_e2_s)
+    # 4. Translate to structured fields
+    Kolor = getattr(dims, "Kolor", getattr(dims, "KolorDim", gtx.Dimension("Kolor")))
+    area_edge_f = gtx.as_field([dims.IDim, dims.JDim, Kolor], pack_edge_field(area_edge_np, index_map))
+    kh_smag_e_f = gtx.as_field([dims.IDim, dims.JDim, Kolor, dims.KDim], pack_edge_field(kh_smag_e_np, index_map))
+    z_nabla2_e_f = gtx.as_field([dims.IDim, dims.JDim, Kolor, dims.KDim], pack_edge_field(z_nabla2_e_np, index_map))
+    z_nabla4_e2_f = gtx.as_field([dims.IDim, dims.JDim, Kolor, dims.KDim], pack_edge_field(z_nabla4_e2_np, index_map))
     diff_multfac_vn_f = gtx.as_field([dims.KDim], diff_multfac_vn_np)
-    nudgecoeff_e_f = gtx.as_field([dims.IDim, dims.JDim, dims.Kolor], nudgecoeff_e_s)
-    vn_f = gtx.as_field([dims.IDim, dims.JDim, dims.Kolor, dims.KDim], vn_s)
-
+    nudgecoeff_e_f = gtx.as_field([dims.IDim, dims.JDim, Kolor], pack_edge_field(nudgecoeff_e_np, index_map))
+    vn_f = gtx.as_field([dims.IDim, dims.JDim, Kolor, dims.KDim], pack_edge_field(vn_np, index_map))
 
     ni, nj = index_map.ij_to_vertex.shape
-    
-    # 6. Execute Structured Stencil
+    selected_backend = gtfn_cpu
+
     prog = setup_program(
         apply_nabla2_and_nabla4_to_vn_cart,
-        backend=gtfn_cpu,
+        backend=selected_backend,
         horizontal_sizes={
-            "domain_max_i": gtx.int32(ni),
-            "domain_max_j": gtx.int32(nj),
+            "domain_min_i": gtx.int32(0), "domain_max_i": gtx.int32(ni),
+            "domain_min_j": gtx.int32(0), "domain_max_j": gtx.int32(nj),
             "domain_max_kolor": gtx.int32(3),
         },
     )
 
+    if hasattr(prog, "_static_args_names"):
+        prog._static_args_names = set(prog._static_args_names) | {"domain_min_i", "domain_min_j"}
+
     prog(
-        area_edge=area_edge_f,
-        kh_smag_e=kh_smag_e_f,
-        z_nabla2_e=z_nabla2_e_f,
-        z_nabla4_e2=z_nabla4_e2_f,
-        diff_multfac_vn=diff_multfac_vn_f,
-        nudgecoeff_e=nudgecoeff_e_f,
-        vn=vn_f,
-        nudgezone_diff=nudgezone_diff,
-        domain_min_i=gtx.int32(0),
-        domain_max_i=gtx.int32(ni),
-        domain_min_j=gtx.int32(0),
-        domain_max_j=gtx.int32(nj),
+        area_edge=area_edge_f, kh_smag_e=kh_smag_e_f, z_nabla2_e=z_nabla2_e_f, z_nabla4_e2=z_nabla4_e2_f,
+        diff_multfac_vn=diff_multfac_vn_f, nudgecoeff_e=nudgecoeff_e_f, vn=vn_f, nudgezone_diff=nudgezone_diff,
+        domain_min_i=gtx.int32(0), domain_max_i=gtx.int32(ni),
+        domain_min_j=gtx.int32(0), domain_max_j=gtx.int32(nj),
         domain_max_kolor=gtx.int32(3),
-        vertical_start=gtx.int32(0),
-        vertical_end=gtx.int32(num_levels),
+        vertical_start=gtx.int32(0), vertical_end=gtx.int32(num_levels),
         offset_provider={}
     )
 
-    # 7. Unpack structured back to unstructured and Verify
     actual_vn_np = unpack_edge_field(vn_f.asnumpy(), index_map, n_edges)
-    
-    np.testing.assert_allclose(actual_vn_np, expected_vn_np, rtol=1e-12, atol=0)
+    np.testing.assert_allclose(actual_vn_np, expected_vn, rtol=1e-12, atol=0)

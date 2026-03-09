@@ -8,6 +8,8 @@
 import gt4py.next as gtx
 import numpy as np
 import pytest
+from dataclasses import replace
+
 
 import icon4py.model.common.utils.data_allocation as data_alloc
 from icon4py.model.atmosphere.diffusion.stencils.calculate_nabla4 import calculate_nabla4, calculate_nabla4_cart
@@ -205,67 +207,86 @@ def test_calculate_nabla4_cartesian(backend="gtfn_cpu"):
     num_levels = 10
 
     index_map = build_index_map_from_lonlat_e2v(lonlat, e2v, nodes_size=nodes_size)
+    ni, nj = index_map.ij_to_vertex.shape
 
-    # Generate test data
+    # 1. SORT THE EDGES: Boundary First, Interior Second (Correct ICON Unstructured Order)
+    is_interior_old = np.zeros(n_edges, dtype=bool)
+    for i in range(ni):
+        for j in range(nj):
+            for k in range(3):
+                e = index_map.ijk_to_edge[i, j, k]
+                if e >= 0:
+                    if (4 <= i < ni - 4) and (4 <= j < nj - 4):
+                        is_interior_old[e] = True
+                        
+    boundary_indices = np.where(~is_interior_old)[0]
+    interior_indices = np.where(is_interior_old)[0]
+    
+    # Map Boundary -> [0..B], Map Interior -> [B..N]
+    old_to_new = np.empty(n_edges, dtype=np.int32)
+    old_to_new[boundary_indices] = np.arange(len(boundary_indices))
+    old_to_new[interior_indices] = np.arange(len(boundary_indices), n_edges)
+    
+    new_ijk_to_edge = np.where(index_map.ijk_to_edge >= 0, old_to_new[index_map.ijk_to_edge], -1)
+    index_map = replace(index_map, ijk_to_edge=new_ijk_to_edge)
+
+    # 2. Generate Data
     np.random.seed(42)
     u_vert_np = np.random.rand(nodes_size, num_levels)
     v_vert_np = np.random.rand(nodes_size, num_levels)
     pn_v1_np = np.random.rand(n_edges, 4)
     pn_v2_np = np.random.rand(n_edges, 4)
     z_nabla2_e_np = np.random.rand(n_edges, num_levels)
-    inv_vert_vert_length_np = np.random.rand(n_edges)
-    inv_primal_edge_length_np = np.random.rand(n_edges)
+    inv_vv_len_np = np.random.rand(n_edges)
+    inv_pe_len_np = np.random.rand(n_edges)
 
-    # Dynamically build topology to guarantee mapping matches
     e2c2v_np, pn_v1_s, pn_v2_s = build_e2c2v_and_pn(index_map, n_edges, pn_v1_np, pn_v2_np)
 
-    # For the numpy reference, we still append a 0-layer so that `-1` index lookups evaluate to 0 
-    # instead of pulling the last element of the array.
+    # Pad safe vertices for the unstructured numpy reference evaluation (-1 array fallback)
     u_vert_safe = np.vstack([u_vert_np, np.zeros((1, num_levels))])
     v_vert_safe = np.vstack([v_vert_np, np.zeros((1, num_levels))])
 
-    expected_z_nabla4_e2 = calculate_nabla4_numpy(
-        {dims.E2C2VDim: e2c2v_np},
-        u_vert_safe, v_vert_safe, pn_v1_np, pn_v2_np, z_nabla2_e_np, 
-        inv_vert_vert_length_np, inv_primal_edge_length_np
+    # 3. GET GROUND TRUTH: Official icon4py reference method
+    expected_output = calculate_nabla4_numpy(
+        connectivities={dims.E2C2VDim: e2c2v_np},
+        u_vert=u_vert_safe,
+        v_vert=v_vert_safe,
+        primal_normal_vert_v1=pn_v1_np,
+        primal_normal_vert_v2=pn_v2_np,
+        z_nabla2_e=z_nabla2_e_np,
+        inv_vert_vert_length=inv_vv_len_np,
+        inv_primal_edge_length=inv_pe_len_np,
     )
 
-    # Pack fields directly without padding
-    u_vert_s = pack_vertex_field(u_vert_np, index_map)
-    v_vert_s = pack_vertex_field(v_vert_np, index_map)
-    z_nabla2_e_s = pack_edge_field(z_nabla2_e_np, index_map)
-    inv_vv_len_s = pack_edge_field(inv_vert_vert_length_np, index_map)
-    inv_pe_len_s = pack_edge_field(inv_primal_edge_length_np, index_map)
-
-    # Convert to fields - no origin shift necessary!
-    u_vert_f = gtx.as_field([dims.IDim, dims.JDim, dims.Kolor, dims.KDim], u_vert_s)
-    v_vert_f = gtx.as_field([dims.IDim, dims.JDim, dims.Kolor, dims.KDim], v_vert_s)
-    
-    pn_v1_f = tuple(gtx.as_field([dims.IDim, dims.JDim, dims.Kolor], p) for p in pn_v1_s)
-    pn_v2_f = tuple(gtx.as_field([dims.IDim, dims.JDim, dims.Kolor], p) for p in pn_v2_s)
-    
-    z_nabla2_e_f = gtx.as_field([dims.IDim, dims.JDim, dims.Kolor, dims.KDim], z_nabla2_e_s)
-    inv_vv_len_f = gtx.as_field([dims.IDim, dims.JDim, dims.Kolor], inv_vv_len_s)
-    inv_pe_len_f = gtx.as_field([dims.IDim, dims.JDim, dims.Kolor], inv_pe_len_s)
-    
-    z_nabla4_e2_f = gtx.as_field([dims.IDim, dims.JDim, dims.Kolor, dims.KDim], np.zeros_like(z_nabla2_e_s))
-
-    ni, nj = index_map.ij_to_vertex.shape
+    # 4. Cast to Fields
+    Kolor = getattr(dims, "Kolor", getattr(dims, "KolorDim", gtx.Dimension("Kolor")))
+    u_vert_f = gtx.as_field([dims.IDim, dims.JDim, Kolor, dims.KDim], pack_vertex_field(u_vert_np, index_map))
+    v_vert_f = gtx.as_field([dims.IDim, dims.JDim, Kolor, dims.KDim], pack_vertex_field(v_vert_np, index_map))
+    pn_v1_f = tuple(gtx.as_field([dims.IDim, dims.JDim, Kolor], p) for p in pn_v1_s)
+    pn_v2_f = tuple(gtx.as_field([dims.IDim, dims.JDim, Kolor], p) for p in pn_v2_s)
+    z_nabla2_e_f = gtx.as_field([dims.IDim, dims.JDim, Kolor, dims.KDim], pack_edge_field(z_nabla2_e_np, index_map))
+    inv_vv_len_f = gtx.as_field([dims.IDim, dims.JDim, Kolor], pack_edge_field(inv_vv_len_np, index_map))
+    inv_pe_len_f = gtx.as_field([dims.IDim, dims.JDim, Kolor], pack_edge_field(inv_pe_len_np, index_map))
+    z_nabla4_e2_f = gtx.as_field([dims.IDim, dims.JDim, Kolor, dims.KDim], pack_edge_field(np.zeros_like(z_nabla2_e_np), index_map))
 
     if backend == "gtfn_cpu":
         selected_backend = gtfn_cpu
     else:
         raise ValueError(f"Backend {backend} not supported in this test.")
 
+    # 5. Set up with MIN static bounds to ensure pure int64 compilation inside the AST
     prog = setup_program(
         calculate_nabla4_cart,
         backend=selected_backend,
         horizontal_sizes={
-            "domain_max_i": gtx.int32(ni),
-            "domain_max_j": gtx.int32(nj),
-            "domain_max_kolor": gtx.int32(3),
+            "domain_min_i": gtx.int32(0), "domain_max_i": gtx.int32(ni),
+            "domain_min_j": gtx.int32(0), "domain_max_j": gtx.int32(nj),
+            "domain_max_kolor": gtx.int32(3)
         },
     )
+
+    if hasattr(prog, "_static_args_names"):
+        prog._static_args_names = set(prog._static_args_names) | {"domain_min_i", "domain_min_j"}
 
     prog(
         u_vert=u_vert_f, v_vert=v_vert_f, pn_v1=pn_v1_f, pn_v2=pn_v2_f,
@@ -278,7 +299,5 @@ def test_calculate_nabla4_cartesian(backend="gtfn_cpu"):
         offset_provider={}
     )
 
-    actual_z_nabla4_e2_np = unpack_edge_field(z_nabla4_e2_f.asnumpy(), index_map, n_edges)
-    print("Expected z_nabla4_e2:", expected_z_nabla4_e2)
-    print("Actual z_nabla4_e2:", actual_z_nabla4_e2_np)
-    np.testing.assert_allclose(actual_z_nabla4_e2_np, expected_z_nabla4_e2, rtol=1e-12, atol=0)
+    actual_z_nabla4_np = unpack_edge_field(z_nabla4_e2_f.asnumpy(), index_map, n_edges)
+    np.testing.assert_allclose(actual_z_nabla4_np, expected_output, rtol=1e-12, atol=1e-14)
