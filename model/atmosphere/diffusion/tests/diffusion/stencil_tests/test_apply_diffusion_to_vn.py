@@ -322,7 +322,7 @@ def test_apply_diffusion_to_vn_cartesian(backend="gtfn_cpu"):
     prog = setup_program(
         apply_diffusion_to_vn_cart,
         backend=selected_backend,
-        horizontal_sizes={"domain_max_i": gtx.int32(ni), "domain_max_j": gtx.int32(nj), "domain_max_kolor": gtx.int32(3)},
+        horizontal_sizes={"domain_min_i": gtx.int32(0), "domain_max_i": gtx.int32(ni), "domain_min_j": gtx.int32(0), "domain_max_j": gtx.int32(nj), "domain_max_kolor": gtx.int32(3)},
     )
 
     prog(
