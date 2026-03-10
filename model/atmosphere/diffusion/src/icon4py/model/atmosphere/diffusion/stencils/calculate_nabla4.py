@@ -200,3 +200,6 @@ def calculate_nabla4_cart(
             dims.KDim: (vertical_start, vertical_end),
         },
     )
+
+    # later for lateral boundary: split into 3 programs, one for every Kolor, because of i,j extents
+    
