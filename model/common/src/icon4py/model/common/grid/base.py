@@ -36,6 +36,7 @@ class GeometryType(enum.Enum):
 
     ICOSAHEDRON = 1
     TORUS = 2
+    CARTESIAN = 4
 
 
 @dataclasses.dataclass(frozen=True)
@@ -228,9 +229,17 @@ def _replace_skip_values(
         _log.info(f"Found invalid indices in {domain}. Replacing...")
         max_valid_neighbor = neighbor_table.max(axis=1, keepdims=True)
         if not array_ns.all(max_valid_neighbor >= 0):
-            _log.warning(
-                f"{domain} contains entries without any valid neighbor, disconnected grid?"
-            )
+            invalid_rows = int(array_ns.sum(max_valid_neighbor < 0).item())
+            total_rows = int(max_valid_neighbor.shape[0])
+            if invalid_rows == total_rows:
+                _log.warning(
+                    f"{domain} contains entries without any valid neighbor, disconnected grid?"
+                )
+            else:
+                _log.info(
+                    f"{domain} contains {invalid_rows}/{total_rows} entries without any valid neighbor; "
+                    "replacing with 0 (typically boundary/halo rows)."
+                )
             max_valid_neighbor = array_ns.where(max_valid_neighbor < 0, 0, max_valid_neighbor)
         neighbor_table[:] = array_ns.where(
             neighbor_table == GridFile.INVALID_INDEX, max_valid_neighbor, neighbor_table

@@ -181,6 +181,38 @@ class StencilTest:
         input_data: dict[str, gtx.Field | tuple[gtx.Field, ...]],
         grid: base.Grid,
     ) -> Callable[..., None]:
+        use_structured_backend = os.environ.get("USE_STRUCTURED_BACKEND", "0") == "1"
+        if use_structured_backend and len(static_variant) == 0:
+            if getattr(grid, "id", None) == "simple_grid":
+                raise RuntimeError(
+                    "Structured backend is disabled for 'simple_grid'. "
+                    "Use a structured-compatible grid (e.g. pass '--grid <ICON_GRID_FILE>:<levels>') "
+                    "or disable USE_STRUCTURED_BACKEND."
+                )
+            try:
+                from gt4py.next.modules.cartesian_interceptor import (
+                    GenericStructuredWrapper,
+                    get_global_grid_mapping,
+                )
+                from gt4py.next.program_processors.runners import gtfn as gtfn_runner
+
+                e2v_conn = grid.connectivities.get("E2V")
+                e2v_array = e2v_conn.asnumpy() if e2v_conn is not None else None
+                index_map, remap_sizes = get_global_grid_mapping(e2v_override=e2v_array)
+                wrapper = GenericStructuredWrapper(
+                    operator=self.PROGRAM,
+                    backend_factory=gtfn_runner.GTFNBackendFactory,
+                    index_map=index_map,
+                    remap_sizes=remap_sizes,
+                    allocator=model_backends.get_allocator(backend_like),
+                    offset_provider=grid.connectivities,
+                )
+                return device_utils.synchronized_function(
+                    wrapper, allocator=model_backends.get_allocator(backend_like)
+                )
+            except Exception as exc:
+                raise RuntimeError("Failed to initialize structured stencil wrapper") from exc
+
         unused_static_params = set(static_variant) - set(input_data.keys())
         if unused_static_params:
             raise ValueError(
@@ -236,6 +268,7 @@ class StencilTest:
             relative_tolerance = 3e-6
             if isinstance(input_data_name, tuple):
                 for i_out_field, out_field in enumerate(input_data_name):
+                    print(f"output: {name}[{i_out_field}]")
                     np.testing.assert_allclose(
                         out_field.asnumpy()[gtslice],
                         reference_outputs[name][i_out_field][refslice],
@@ -246,6 +279,10 @@ class StencilTest:
             else:
                 reference_outputs_name = reference_outputs[name]  # for mypy
                 assert isinstance(reference_outputs_name, np.ndarray)
+                print(f"output: {name}, values: {input_data_name.asnumpy()[gtslice][:,0]}")
+                print(f"reference: {reference_outputs_name[refslice][:,0]}")
+                print(f"slices - gt4py: {gtslice}, reference: {refslice}")
+                print(f"input_data_name shape: {input_data_name.asnumpy().shape}, reference_outputs_name shape: {reference_outputs_name.shape}")
                 np.testing.assert_allclose(
                     input_data_name.asnumpy()[gtslice],
                     reference_outputs_name[refslice],

@@ -32,6 +32,18 @@ CONNECTIVITIES_ON_BOUNDARIES = (
     dims.C2E2C2E2CDim,
 )
 CONNECTIVITIES_ON_PENTAGONS = (dims.V2EDim, dims.V2CDim, dims.V2E2VDim)
+CONNECTIVITIES_REQUIRING_SKIP_VALUES = (
+    dims.E2C2VDim,
+    dims.C2E2CODim,
+    dims.C2E2CDim,
+    dims.E2C2EODim,
+    dims.E2C2EDim,
+    dims.C2E2C2EDim,
+    dims.C2E2C2E2CDim,
+    dims.V2EDim,
+    dims.V2CDim,
+    dims.E2CDim,
+)
 
 
 @dataclasses.dataclass(frozen=True, kw_only=True)
@@ -177,6 +189,9 @@ def _should_replace_skip_values(
         bool: True if the skip values in the neighbor table should be replaced, False otherwise.
 
     """
+    local_dim = offset.target[1]
+    if local_dim in CONNECTIVITIES_REQUIRING_SKIP_VALUES:
+        return False
     return not keep_skip_values and (limited_area or not _has_skip_values(offset, limited_area))
 
 
