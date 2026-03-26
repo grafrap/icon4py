@@ -40,6 +40,8 @@ def allocate_data(
     ],  # `Field`s or collection of `Field`s are re-allocated, the rest is passed through
 ) -> dict[str, Any]:
     def _allocate_field(f: gtx.Field) -> gtx.Field:
+        if not hasattr(f, "domain"):
+            return f
         return constructors.as_field(domain=f.domain, data=f.ndarray, allocator=allocator)
 
     input_data = {

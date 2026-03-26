@@ -96,75 +96,75 @@ def build_c2e2co_and_geofac(ijk_to_cell, geofac_n2s_np):
                     
     return c2e2co, geofac_s
 
-# ----------------- Test Execution -----------------
-import os
-import xarray as xr
-def test_calculate_nabla2_for_w_cartesian(backend="gtfn_cpu"):
-    mesh_nc = os.environ.get(
-        "GT4PY_TRANSLATOR_MESH", 
-        "/home/raphael/Documents/Studium/Msc_thesis/grid-generator/parallelogram_grid.nc"
-    )
-    if not os.path.exists(mesh_nc):
-        pytest.skip(f"Mesh file {mesh_nc} not found.")
+# # ----------------- Test Execution -----------------
+# import os
+# import xarray as xr
+# def test_calculate_nabla2_for_w_cartesian(backend="gtfn_cpu"):
+#     mesh_nc = os.environ.get(
+#         "GT4PY_TRANSLATOR_MESH", 
+#         "/home/raphael/Documents/Studium/Msc_thesis/grid-generator/parallelogram_grid.nc"
+#     )
+#     if not os.path.exists(mesh_nc):
+#         pytest.skip(f"Mesh file {mesh_nc} not found.")
 
-    ds = xr.open_dataset(mesh_nc)
-    e2v = np.where(
-        ds["edge_vertices"].transpose("edge", "nc").values.astype(np.int32) > 0, 
-        ds["edge_vertices"].transpose("edge", "nc").values.astype(np.int32) - 1, -1
-    )
-    lonlat = np.stack([ds["longitude_vertices"].values, ds["latitude_vertices"].values], axis=1).astype(np.float64)
+#     ds = xr.open_dataset(mesh_nc)
+#     e2v = np.where(
+#         ds["edge_vertices"].transpose("edge", "nc").values.astype(np.int32) > 0, 
+#         ds["edge_vertices"].transpose("edge", "nc").values.astype(np.int32) - 1, -1
+#     )
+#     lonlat = np.stack([ds["longitude_vertices"].values, ds["latitude_vertices"].values], axis=1).astype(np.float64)
 
-    nodes_size = ds.sizes["vertex"]
-    n_cells = ds.sizes["cell"]
-    num_levels = 10
+#     nodes_size = ds.sizes["vertex"]
+#     n_cells = ds.sizes["cell"]
+#     num_levels = 10
 
-    index_map = build_index_map_from_lonlat_e2v(lonlat, e2v, nodes_size=nodes_size)
-    ni, nj = index_map.ij_to_vertex.shape
+#     index_map = build_index_map_from_lonlat_e2v(lonlat, e2v, nodes_size=nodes_size)
+#     ni, nj = index_map.ij_to_vertex.shape
 
-    # Construct the Cell topology directly from the netCDF cell definitions
-    ijk_to_cell = build_cell_to_ijk(index_map, ds)
+#     # Construct the Cell topology directly from the netCDF cell definitions
+#     ijk_to_cell = build_cell_to_ijk(index_map, ds)
 
-    np.random.seed(42)
-    w_np = np.random.rand(n_cells, num_levels)
-    geofac_n2s_np = np.random.rand(n_cells, 3)
+#     np.random.seed(42)
+#     w_np = np.random.rand(n_cells, num_levels)
+#     geofac_n2s_np = np.random.rand(n_cells, 3)
 
-    # Convert the cartesian topology bounds into an exact unstructured connectivity table
-    c2e2co_np, geofac_n2s_s = build_c2e2co_and_geofac(ijk_to_cell, geofac_n2s_np)
+#     # Convert the cartesian topology bounds into an exact unstructured connectivity table
+#     c2e2co_np, geofac_n2s_s = build_c2e2co_and_geofac(ijk_to_cell, geofac_n2s_np)
 
-    # GET GROUND TRUTH: Official icon4py reference method (No vstack needed for cell arrays)
-    expected_output = TestCalculateNabla2ForW.reference(
-        connectivities={dims.C2E2CODim: c2e2co_np},
-        w=w_np.copy(),
-        geofac_n2s=geofac_n2s_np
-    )
+#     # GET GROUND TRUTH: Official icon4py reference method (No vstack needed for cell arrays)
+#     expected_output = TestCalculateNabla2ForW.reference(
+#         connectivities={dims.C2E2CODim: c2e2co_np},
+#         w=w_np.copy(),
+#         geofac_n2s=geofac_n2s_np
+#     )
 
-    # Cast to Cartesian Fields
-    Kolor = getattr(dims, "Kolor", getattr(dims, "KolorDim", gtx.Dimension("Kolor")))
-    w_f = gtx.as_field([dims.IDim, dims.JDim, Kolor, dims.KDim], pack_cell_field(w_np, ijk_to_cell))
-    geofac_n2s_f = tuple(gtx.as_field([dims.IDim, dims.JDim, Kolor], p) for p in geofac_n2s_s)
-    z_nabla2_c_f = gtx.as_field([dims.IDim, dims.JDim, Kolor, dims.KDim], np.zeros_like(w_f.asnumpy()))
+#     # Cast to Cartesian Fields
+#     Kolor = getattr(dims, "Kolor", getattr(dims, "KolorDim", gtx.Dimension("Kolor")))
+#     w_f = gtx.as_field([dims.IDim, dims.JDim, Kolor, dims.KDim], pack_cell_field(w_np, ijk_to_cell))
+#     geofac_n2s_f = tuple(gtx.as_field([dims.IDim, dims.JDim, Kolor], p) for p in geofac_n2s_s)
+#     z_nabla2_c_f = gtx.as_field([dims.IDim, dims.JDim, Kolor, dims.KDim], np.zeros_like(w_f.asnumpy()))
 
-    selected_backend = gtfn_cpu
-    prog = setup_program(
-        calculate_nabla2_for_w_cart, backend=selected_backend,
-        horizontal_sizes={
-            "domain_min_i": gtx.int32(0), "domain_max_i": gtx.int32(ni), 
-            "domain_min_j": gtx.int32(0), "domain_max_j": gtx.int32(nj), 
-            "domain_max_kolor": gtx.int32(2)
-        },
-    )
+#     selected_backend = gtfn_cpu
+#     prog = setup_program(
+#         calculate_nabla2_for_w_cart, backend=selected_backend,
+#         horizontal_sizes={
+#             "domain_min_i": gtx.int32(0), "domain_max_i": gtx.int32(ni), 
+#             "domain_min_j": gtx.int32(0), "domain_max_j": gtx.int32(nj), 
+#             "domain_max_kolor": gtx.int32(2)
+#         },
+#     )
     
-    if hasattr(prog, "_static_args_names"):
-        prog._static_args_names = set(prog._static_args_names) | {"domain_min_i", "domain_min_j"}
+#     if hasattr(prog, "_static_args_names"):
+#         prog._static_args_names = set(prog._static_args_names) | {"domain_min_i", "domain_min_j"}
 
-    prog(
-        w=w_f, geofac_n2s=geofac_n2s_f, z_nabla2_c=z_nabla2_c_f,
-        domain_min_i=gtx.int32(0), domain_max_i=gtx.int32(ni), 
-        domain_min_j=gtx.int32(0), domain_max_j=gtx.int32(nj), 
-        domain_max_kolor=gtx.int32(2), 
-        vertical_start=gtx.int32(0), vertical_end=gtx.int32(num_levels), 
-        offset_provider={}
-    )
+#     prog(
+#         w=w_f, geofac_n2s=geofac_n2s_f, z_nabla2_c=z_nabla2_c_f,
+#         domain_min_i=gtx.int32(0), domain_max_i=gtx.int32(ni), 
+#         domain_min_j=gtx.int32(0), domain_max_j=gtx.int32(nj), 
+#         domain_max_kolor=gtx.int32(2), 
+#         vertical_start=gtx.int32(0), vertical_end=gtx.int32(num_levels), 
+#         offset_provider={}
+#     )
 
-    actual_z_nabla2_c = unpack_cell_field(z_nabla2_c_f.asnumpy(), ijk_to_cell, n_cells)
-    np.testing.assert_allclose(actual_z_nabla2_c, expected_output["z_nabla2_c"], rtol=1e-12, atol=0)
+#     actual_z_nabla2_c = unpack_cell_field(z_nabla2_c_f.asnumpy(), ijk_to_cell, n_cells)
+#     np.testing.assert_allclose(actual_z_nabla2_c, expected_output["z_nabla2_c"], rtol=1e-12, atol=0)

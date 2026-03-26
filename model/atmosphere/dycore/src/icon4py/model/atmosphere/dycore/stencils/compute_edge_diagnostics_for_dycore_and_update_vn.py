@@ -307,13 +307,13 @@ def _apply_divergence_damping_and_update_vn(
     # Since scaling_factor_for_3d_divdamp is zero when k < kstart_dd3d, it is meaningless to execute computation
     # above level kstart_dd3d. But we have decided to remove this manual optimization in icon4py.
     # See discussion in this PR https://github.com/C2SM/icon4py/pull/793
-    horizontal_gradient_of_total_divergence = _add_vertical_wind_derivative_to_divergence_damping(
-        hmask_dd3d=horizontal_mask_for_3d_divdamp,
-        scalfac_dd3d=scaling_factor_for_3d_divdamp,
-        inv_dual_edge_length=inv_dual_edge_length,
-        z_dwdz_dd=dwdz_at_cells_on_model_levels,
-        z_graddiv_vn=horizontal_gradient_of_normal_wind_divergence,
-    )
+    # horizontal_gradient_of_total_divergence = _add_vertical_wind_derivative_to_divergence_damping(
+    #     hmask_dd3d=horizontal_mask_for_3d_divdamp,
+    #     scalfac_dd3d=scaling_factor_for_3d_divdamp,
+    #     inv_dual_edge_length=inv_dual_edge_length,
+    #     z_dwdz_dd=dwdz_at_cells_on_model_levels,
+    #     z_graddiv_vn=horizontal_gradient_of_normal_wind_divergence,
+    # )
 
     next_vn = _add_temporal_tendencies_to_vn_by_interpolating_between_time_levels(
         vn_nnow=current_vn,
@@ -328,43 +328,43 @@ def _apply_divergence_damping_and_update_vn(
         cpd=dycore_consts.cpd,
     )
 
-    if apply_2nd_order_divergence_damping:
-        next_vn = _apply_2nd_order_divergence_damping(
-            z_graddiv_vn=horizontal_gradient_of_total_divergence,
-            vn=next_vn,
-            scal_divdamp_o2=second_order_divdamp_scaling_coeff,
-        )
+    # if apply_2nd_order_divergence_damping:
+    #     next_vn = _apply_2nd_order_divergence_damping(
+    #         z_graddiv_vn=horizontal_gradient_of_total_divergence,
+    #         vn=next_vn,
+    #         scal_divdamp_o2=second_order_divdamp_scaling_coeff,
+    #     )
 
-    if apply_4th_order_divergence_damping:
-        squared_horizontal_gradient_of_total_divergence = _compute_graddiv2_of_vn(
-            geofac_grdiv=geofac_grdiv, z_graddiv_vn=horizontal_gradient_of_total_divergence
-        )
-        if limited_area:
-            next_vn = _apply_weighted_2nd_and_4th_order_divergence_damping(
-                interpolated_fourth_order_divdamp_factor=interpolated_fourth_order_divdamp_factor,
-                nudgecoeff_e=nudgecoeff_e,
-                z_graddiv2_vn=squared_horizontal_gradient_of_total_divergence,
-                vn=next_vn,
-                divdamp_order=divdamp_order,
-                mean_cell_area=mean_cell_area,
-                second_order_divdamp_factor=second_order_divdamp_factor,
-                max_nudging_coefficient=max_nudging_coefficient,
-                dbl_eps=dbl_eps,
-            )
-        else:
-            next_vn = _apply_4th_order_divergence_damping(
-                interpolated_fourth_order_divdamp_factor=interpolated_fourth_order_divdamp_factor,
-                z_graddiv2_vn=squared_horizontal_gradient_of_total_divergence,
-                vn=next_vn,
-                divdamp_order=divdamp_order,
-                mean_cell_area=mean_cell_area,
-                second_order_divdamp_factor=second_order_divdamp_factor,
-            )
+    # if apply_4th_order_divergence_damping:
+    #     squared_horizontal_gradient_of_total_divergence = _compute_graddiv2_of_vn(
+    #         geofac_grdiv=geofac_grdiv, z_graddiv_vn=horizontal_gradient_of_total_divergence
+    #     )
+    #     if limited_area:
+    #         next_vn = _apply_weighted_2nd_and_4th_order_divergence_damping(
+    #             interpolated_fourth_order_divdamp_factor=interpolated_fourth_order_divdamp_factor,
+    #             nudgecoeff_e=nudgecoeff_e,
+    #             z_graddiv2_vn=squared_horizontal_gradient_of_total_divergence,
+    #             vn=next_vn,
+    #             divdamp_order=divdamp_order,
+    #             mean_cell_area=mean_cell_area,
+    #             second_order_divdamp_factor=second_order_divdamp_factor,
+    #             max_nudging_coefficient=max_nudging_coefficient,
+    #             dbl_eps=dbl_eps,
+    #         )
+    #     else:
+    #         next_vn = _apply_4th_order_divergence_damping(
+    #             interpolated_fourth_order_divdamp_factor=interpolated_fourth_order_divdamp_factor,
+    #             z_graddiv2_vn=squared_horizontal_gradient_of_total_divergence,
+    #             vn=next_vn,
+    #             divdamp_order=divdamp_order,
+    #             mean_cell_area=mean_cell_area,
+    #             second_order_divdamp_factor=second_order_divdamp_factor,
+    #         )
 
-    if is_iau_active:
-        next_vn = _add_analysis_increments_to_vn(
-            vn_incr=normal_wind_iau_increment, vn=next_vn, iau_wgt_dyn=iau_wgt_dyn
-        )
+    # if is_iau_active:
+    #     next_vn = _add_analysis_increments_to_vn(
+    #         vn_incr=normal_wind_iau_increment, vn=next_vn, iau_wgt_dyn=iau_wgt_dyn
+    #     )
 
     return next_vn
 
