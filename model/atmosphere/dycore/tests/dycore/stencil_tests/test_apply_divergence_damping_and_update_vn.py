@@ -93,11 +93,14 @@ class TestApplyDivergenceDampingAndUpdateVn(test_helpers.StencilTest):
         
         # 1. DYNAMICALLY BUILD THE MASK
         lateral_margin = int(os.environ.get("GT4PY_TRANSLATOR_LATERAL", "5"))
+        nx = 0
+        ny = 0
+        if lateral_margin > 0:
+            nx = int((horizontal_start - lateral_margin + 1) / lateral_margin)
+            ny = int((horizontal_end - nx) / (3 * nx + 1))
         if is_structured and lateral_margin > 0:
             
             # Use your exact math to infer nx and ny from the 1D boundaries
-            nx = int((horizontal_start - lateral_margin + 1) / lateral_margin)
-            ny = int((horizontal_end - nx) / (3 * nx + 1))
             
             start_i, start_j = lateral_margin, lateral_margin
             end_i, end_j = ny + 1 - lateral_margin, nx + 1 - lateral_margin
@@ -118,10 +121,11 @@ class TestApplyDivergenceDampingAndUpdateVn(test_helpers.StencilTest):
                     idx = (i * nx) + j
                     if idx < total_edges:
                         mask_1d[idx] = True
+            
             # northeast edges:
             for i in range(start_i, end_i-1):
                 for j in range(start_j, end_j):
-                    idx = (i * nx) + j + (nx * ny) + nx
+                    idx = (i * (nx+1)) + j + (nx * ny) + nx
                     if idx < total_edges:
                         mask_1d[idx] = True
             
@@ -148,12 +152,16 @@ class TestApplyDivergenceDampingAndUpdateVn(test_helpers.StencilTest):
             dwdz_at_edges_on_model_levels[:, 1] - dwdz_at_edges_on_model_levels[:, 0]
         )
 
-        # horizontal_gradient_of_total_divergence = horizontal_gradient_of_normal_wind_divergence + (
-        #     horizontal_mask_for_3d_divdamp
-        #     * scaling_factor_for_3d_divdamp
-        #     * inv_dual_edge_length
-        #     * weighted_dwdz_at_edges_on_model_levels
-        # )
+        # Adjust for new e2c layout: multiply first 13*17 and last 13*16 entries by -1
+        weighted_dwdz_at_edges_on_model_levels[:nx*(ny+1), :] *= -1
+        weighted_dwdz_at_edges_on_model_levels[(2*nx*ny) + ny + nx:, :] *= -1
+
+        horizontal_gradient_of_total_divergence = horizontal_gradient_of_normal_wind_divergence + (
+            horizontal_mask_for_3d_divdamp
+            * scaling_factor_for_3d_divdamp
+            * inv_dual_edge_length
+            * weighted_dwdz_at_edges_on_model_levels
+        )
 
         # 2. USE THE MASK FOR THE CALCULATIONS
         next_vn = np.where(
@@ -169,58 +177,58 @@ class TestApplyDivergenceDampingAndUpdateVn(test_helpers.StencilTest):
             next_vn,
         )
 
-        # if apply_2nd_order_divergence_damping:
-        #     next_vn = np.where(
-        #         compute_mask,
-        #         next_vn
-        #         + (second_order_divdamp_scaling_coeff * horizontal_gradient_of_total_divergence),
-        #         next_vn,
-        #     )
+        if apply_2nd_order_divergence_damping:
+            next_vn = np.where(
+                compute_mask,
+                next_vn
+                + (second_order_divdamp_scaling_coeff * horizontal_gradient_of_total_divergence),
+                next_vn,
+            )
 
-        # if apply_4th_order_divergence_damping:
-        #     e2c2eO = connectivities[dims.E2C2EODim]
-        #     squared_horizontal_gradient_of_total_divergence = np.where(
-        #         compute_mask,
-        #         np.sum(
-        #             np.where(
-        #                 (e2c2eO != -1)[:, :, np.newaxis],
-        #                 horizontal_gradient_of_total_divergence[e2c2eO]
-        #                 * np.expand_dims(geofac_grdiv, axis=-1),
-        #                 0,
-        #             ),
-        #             axis=1,
-        #         ),
-        #         np.zeros_like(horizontal_gradient_of_total_divergence),
-        #     )
-        #     fourth_order_divdamp_scaling_coeff = (
-        #         test_dycore_utils.fourth_order_divdamp_scaling_coeff_numpy(
-        #             interpolated_fourth_order_divdamp_factor, divdamp_order, second_order_divdamp_factor, mean_cell_area
-        #         )
-        #     )
-        #     reduced_fourth_order_divdamp_coeff_at_nest_boundary = test_dycore_utils.calculate_reduced_fourth_order_divdamp_coeff_at_nest_boundary_numpy(
-        #         fourth_order_divdamp_scaling_coeff, max_nudging_coefficient
-        #     )
-        #     if limited_area:
-        #         next_vn = np.where(
-        #             compute_mask,
-        #             next_vn
-        #             + (fourth_order_divdamp_scaling_coeff + reduced_fourth_order_divdamp_coeff_at_nest_boundary * np.expand_dims(nudgecoeff_e, axis=-1))
-        #             * squared_horizontal_gradient_of_total_divergence,
-        #             next_vn,
-        #         )
-        #     else:
-        #         next_vn = np.where(
-        #             compute_mask,
-        #             next_vn + (np.expand_dims(fourth_order_divdamp_scaling_coeff, axis=0) * squared_horizontal_gradient_of_total_divergence),
-        #             next_vn,
-        #         )
+        if apply_4th_order_divergence_damping:
+            e2c2eO = connectivities[dims.E2C2EODim]
+            squared_horizontal_gradient_of_total_divergence = np.where(
+                compute_mask,
+                np.sum(
+                    np.where(
+                        (e2c2eO != -1)[:, :, np.newaxis],
+                        horizontal_gradient_of_total_divergence[e2c2eO]
+                        * np.expand_dims(geofac_grdiv, axis=-1),
+                        0,
+                    ),
+                    axis=1,
+                ),
+                np.zeros_like(horizontal_gradient_of_total_divergence),
+            )
+            fourth_order_divdamp_scaling_coeff = (
+                test_dycore_utils.fourth_order_divdamp_scaling_coeff_numpy(
+                    interpolated_fourth_order_divdamp_factor, divdamp_order, second_order_divdamp_factor, mean_cell_area
+                )
+            )
+            reduced_fourth_order_divdamp_coeff_at_nest_boundary = test_dycore_utils.calculate_reduced_fourth_order_divdamp_coeff_at_nest_boundary_numpy(
+                fourth_order_divdamp_scaling_coeff, max_nudging_coefficient
+            )
+            if limited_area:
+                next_vn = np.where(
+                    compute_mask,
+                    next_vn
+                    + (fourth_order_divdamp_scaling_coeff + reduced_fourth_order_divdamp_coeff_at_nest_boundary * np.expand_dims(nudgecoeff_e, axis=-1))
+                    * squared_horizontal_gradient_of_total_divergence,
+                    next_vn,
+                )
+            else:
+                next_vn = np.where(
+                    compute_mask,
+                    next_vn + (np.expand_dims(fourth_order_divdamp_scaling_coeff, axis=0) * squared_horizontal_gradient_of_total_divergence),
+                    next_vn,
+                )
 
-        # if is_iau_active:
-        #     next_vn = np.where(
-        #         compute_mask,
-        #         next_vn + (iau_wgt_dyn * normal_wind_iau_increment),
-        #         next_vn,
-        #     )
+        if is_iau_active:
+            next_vn = np.where(
+                compute_mask,
+                next_vn + (iau_wgt_dyn * normal_wind_iau_increment),
+                next_vn,
+            )
 
         return dict(next_vn=next_vn)
 
@@ -367,3 +375,10 @@ class TestApplyDivergenceDampingAndUpdateVn(test_helpers.StencilTest):
             vertical_start=0,
             vertical_end=grid.num_levels,
         )
+'''
+horizontal_gradient_of_normal_wind_divergence
+horizontal_mask_for_3d_divdamp
+scaling_factor_for_3d_divdamp
+inv_dual_edge_length
+dwdz_at_cells_on_model_levels
+'''
