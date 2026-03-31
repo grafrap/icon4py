@@ -35,6 +35,7 @@ def add_vertical_wind_derivative_to_divergence_damping_numpy(
     z_dwdz_dd = np.array(z_dwdz_dd, copy=True)
     e2c = np.array(connectivities[dims.E2CDim], copy=True)
 
+    # get the unstructured mapping for edges and cells
     _, edge_backtransform, edge_unstructured_mask, horizontal_start = transform_to_unstructured(
         hmask_dd3d, 13, "Edge", 3
     )
@@ -43,6 +44,7 @@ def add_vertical_wind_derivative_to_divergence_damping_numpy(
         z_dwdz_dd[:, 0], 13, "Cell", 2
     )
 
+    # Define helper functions for mappings
     def to_unstructured(field: np.ndarray, backtransform: np.ndarray) -> np.ndarray:
         out = np.zeros_like(field)
         out[backtransform] = field
@@ -61,46 +63,19 @@ def add_vertical_wind_derivative_to_divergence_damping_numpy(
     # 1) reorder rows by unstructured edge ids
     # 2) map structured cell ids to unstructured cell ids
     e2c_u = to_unstructured(e2c, edge_backtransform)
-    valid0 = e2c_u[:, 0] != -1
-    valid1 = e2c_u[:, 1] != -1
-    e2c_u[valid0, 0] = cell_backtransform[e2c_u[valid0, 0]]
-    e2c_u[valid1, 1] = cell_backtransform[e2c_u[valid1, 1]]
+    e2c_u[:, 0] = cell_backtransform[e2c_u[:, 0]]
+    e2c_u[:, 1] = cell_backtransform[e2c_u[:, 1]]
 
     z_dwdz_dd_e2c = z_dwdz_dd_u[e2c_u]
 
-    
-    
-    # z_dwdz_dd_e2c has shape (n_edges, 2, n_k) when z_dwdz_dd carries a K-dim.
-    # Build per-edge arrays for both neighbouring cells for all vertical levels.
-    if z_dwdz_dd_e2c.ndim == 3:
-        n_edges, _, n_k = z_dwdz_dd_e2c.shape
-        e2c0 = np.zeros((n_edges, n_k), dtype=z_dwdz_dd_e2c.dtype)
-        e2c1 = np.zeros((n_edges, n_k), dtype=z_dwdz_dd_e2c.dtype)
-
-        mask0 = e2c_u[:, 0] != -1
-        mask1 = e2c_u[:, 1] != -1
-
-        if np.any(mask0):
-            e2c0[mask0, :] = z_dwdz_dd_e2c[mask0, 0, :]
-        if np.any(mask1):
-            e2c1[mask1, :] = z_dwdz_dd_e2c[mask1, 1, :]
-
-        # weighted difference per-edge, per-level
-        z_dwdz_dd_weighted = e2c1 - e2c0
-    else:
-        # fall back to scalar behaviour
-        n_edges = z_dwdz_dd_e2c.shape[0]
-        e2c0 = np.zeros((n_edges,), dtype=z_dwdz_dd_e2c.dtype)
-        e2c1 = np.zeros((n_edges,), dtype=z_dwdz_dd_e2c.dtype)
-        for i in range(n_edges):
-            e2c0[i] = z_dwdz_dd_e2c[i, 0] if e2c_u[i, 0] != -1 else 0.0
-            e2c1[i] = z_dwdz_dd_e2c[i, 1] if e2c_u[i, 1] != -1 else 0.0
-        z_dwdz_dd_weighted = e2c1 - e2c0
+    # Compute the e2c difference
+    z_dwdz_dd_weighted = z_dwdz_dd_e2c[:, 1, ...] - z_dwdz_dd_e2c[:, 0, ...]
 
     scalfac_dd3d_2d = np.expand_dims(scalfac_dd3d, axis=0)
     hmask_dd3d_2d = np.expand_dims(hmask_dd3d_u, axis=-1)
     inv_dual_edge_length_2d = np.expand_dims(inv_dual_edge_length_u, axis=-1)
 
+    # write stencil result into a new array to avoid mutating the input z_graddiv_vn
     z_graddiv_vn_final_u = np.array(z_graddiv_vn_u, copy=True)
     z_graddiv_vn_final_u[horizontal_start:, :] = z_graddiv_vn_u[horizontal_start:, :] + (
         hmask_dd3d_2d[horizontal_start:, :]
