@@ -153,8 +153,8 @@ class TestApplyDivergenceDampingAndUpdateVn(test_helpers.StencilTest):
         )
 
         # Adjust for new e2c layout: multiply first 13*17 and last 13*16 entries by -1
-        weighted_dwdz_at_edges_on_model_levels[:nx*(ny+1), :] *= -1
-        weighted_dwdz_at_edges_on_model_levels[(2*nx*ny) + ny + nx:, :] *= -1
+        # weighted_dwdz_at_edges_on_model_levels[:nx*(ny+1), :] *= -1
+        # weighted_dwdz_at_edges_on_model_levels[(2*nx*ny) + ny + nx:, :] *= -1
 
         horizontal_gradient_of_total_divergence = horizontal_gradient_of_normal_wind_divergence + (
             horizontal_mask_for_3d_divdamp

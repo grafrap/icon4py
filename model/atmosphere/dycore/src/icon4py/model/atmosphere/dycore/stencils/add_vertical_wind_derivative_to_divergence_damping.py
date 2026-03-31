@@ -25,12 +25,12 @@ def _add_vertical_wind_derivative_to_divergence_damping(
     z_graddiv_vn_wp = astype(z_graddiv_vn, wpfloat)
 
     scalfac_dd3d = broadcast(scalfac_dd3d, (EdgeDim, KDim))
-    z_graddiv_vn_wp = astype(z_dwdz_dd(E2C[1]) - z_dwdz_dd(E2C[0]), wpfloat)# z_graddiv_vn_wp + (
-    #     hmask_dd3d
-    #     * scalfac_dd3d
-    #     * inv_dual_edge_length
-    #     * astype(z_dwdz_dd(E2C[1]) - z_dwdz_dd(E2C[0]), wpfloat)
-    # )
+    z_graddiv_vn_wp = z_graddiv_vn_wp + (
+        hmask_dd3d
+        * scalfac_dd3d
+        * inv_dual_edge_length
+        * astype(z_dwdz_dd(E2C[1]) - z_dwdz_dd(E2C[0]), wpfloat)
+    )
     return astype(z_graddiv_vn_wp, vpfloat)
 
 

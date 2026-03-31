@@ -36,21 +36,18 @@ def add_vertical_wind_derivative_to_divergence_damping_numpy(
     e2c = np.array(connectivities[dims.E2CDim], copy=True)
 
     # transform to unstructured layout:
-    mapping = transform_to_unstructured(hmask_dd3d, 2)
-    backtransform = mapping[1]
-    transform = mapping[0]
+    mapping = transform_to_unstructured(hmask_dd3d, 13, "Edge", 3)
+    horizontal_start = mapping[3]
+    print(f"horizontal_start: ", horizontal_start)
 
-    cell_mapping = transform_to_unstructured(z_dwdz_dd[:,0], 2, "Cell")
+    cell_mapping = transform_to_unstructured(z_dwdz_dd[:,0], 13, "Cell", 1)
     cell_backtransform = cell_mapping[1]
-    print(cell_backtransform[:30])
     for i in range(e2c.shape[0]):
         v1, v2 = e2c[i, 0], e2c[i, 1]
-        print(f"edge {i}: v1={v1}, v2={v2}")
         if v1 != -1:
             e2c[i, 0] = cell_backtransform[v1]
         if v2 != -1:
             e2c[i, 1] = cell_backtransform[v2]
-        print(f"after transformation edge {i}: v1={e2c[i, 0]}, v2={e2c[i, 1]}")
 
 
     # Build unstructured cell field so remapped E2C cell indices gather correctly.
@@ -88,29 +85,20 @@ def add_vertical_wind_derivative_to_divergence_damping_numpy(
             e2c1[i] = z_dwdz_dd_e2c[i, 1] if e2c[i, 1] != -1 else 0.0
         z_dwdz_dd_weighted = e2c1 - e2c0
 
-    # Keep the original stencil-style full update here for debugging/comparison.
-    # scalfac_dd3d_2d = np.expand_dims(scalfac_dd3d, axis=0)
-    # hmask_dd3d_2d = np.expand_dims(hmask_dd3d, axis=-1)
-    # inv_dual_edge_length_2d = np.expand_dims(inv_dual_edge_length, axis=-1)
-    #
-    # # If needed, map edge-defined fields consistently with the edge mapping.
-    # # hmask_dd3d_2d = hmask_dd3d_2d[backtransform[:], :]
-    # # inv_dual_edge_length_2d = inv_dual_edge_length_2d[backtransform[:], :]
-    #
-    # z_graddiv_vn_full = z_graddiv_vn + (
-    #     hmask_dd3d_2d
-    #     * scalfac_dd3d_2d
-    #     * inv_dual_edge_length_2d
-    #     * z_dwdz_dd_weighted
-    # )
-    #
-    # # Optional final remap back to structured order (if intermediate values are
-    # # explicitly computed in unstructured edge order):
-    # # z_graddiv_vn_struct = np.zeros_like(z_graddiv_vn_full)
-    # # z_graddiv_vn_struct[transform[:], :] = z_graddiv_vn_full[:, :]
 
+    scalfac_dd3d_2d = np.expand_dims(scalfac_dd3d, axis=0)
+    hmask_dd3d_2d = np.expand_dims(hmask_dd3d, axis=-1)
+    inv_dual_edge_length_2d = np.expand_dims(inv_dual_edge_length, axis=-1)
+    
+    
+    z_graddiv_vn[horizontal_start:, :] = z_graddiv_vn[horizontal_start:, :] + (
+        hmask_dd3d_2d[horizontal_start:, :]
+        * scalfac_dd3d_2d
+        * inv_dual_edge_length_2d[horizontal_start:, :]
+        * z_dwdz_dd_weighted[horizontal_start:, :]
+    )
 
-    return z_dwdz_dd_weighted
+    return z_graddiv_vn
 
 
 # @pytest.mark.skip_value_error
