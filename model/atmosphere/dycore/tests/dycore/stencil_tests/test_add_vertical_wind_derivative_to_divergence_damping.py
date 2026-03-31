@@ -35,28 +35,40 @@ def add_vertical_wind_derivative_to_divergence_damping_numpy(
     z_dwdz_dd = np.array(z_dwdz_dd, copy=True)
     e2c = np.array(connectivities[dims.E2CDim], copy=True)
 
-    # transform to unstructured layout:
-    mapping = transform_to_unstructured(hmask_dd3d, 13, "Edge", 3)
-    horizontal_start = mapping[3]
-    print(f"horizontal_start: ", horizontal_start)
+    _, edge_backtransform, edge_unstructured_mask, horizontal_start = transform_to_unstructured(
+        hmask_dd3d, 13, "Edge", 3
+    )
 
-    cell_mapping = transform_to_unstructured(z_dwdz_dd[:,0], 13, "Cell", 1)
-    cell_backtransform = cell_mapping[1]
-    for i in range(e2c.shape[0]):
-        v1, v2 = e2c[i, 0], e2c[i, 1]
-        if v1 != -1:
-            e2c[i, 0] = cell_backtransform[v1]
-        if v2 != -1:
-            e2c[i, 1] = cell_backtransform[v2]
+    _, cell_backtransform, _, _ = transform_to_unstructured(
+        z_dwdz_dd[:, 0], 13, "Cell", 2
+    )
 
+    def to_unstructured(field: np.ndarray, backtransform: np.ndarray) -> np.ndarray:
+        out = np.zeros_like(field)
+        out[backtransform] = field
+        return out
 
-    # Build unstructured cell field so remapped E2C cell indices gather correctly.
-    z_dwdz_dd_unstructured = np.zeros_like(z_dwdz_dd)
-    z_dwdz_dd_unstructured[cell_backtransform[:]] = z_dwdz_dd[:]
-    z_dwdz_dd = z_dwdz_dd_unstructured
+    def to_structured(field: np.ndarray, backtransform: np.ndarray) -> np.ndarray:
+        return field[backtransform]
 
+    # Convert fields to the unstructured ICON-like ordering.
+    hmask_dd3d_u = edge_unstructured_mask
+    inv_dual_edge_length_u = to_unstructured(inv_dual_edge_length, edge_backtransform)
+    z_graddiv_vn_u = to_unstructured(z_graddiv_vn, edge_backtransform)
+    z_dwdz_dd_u = to_unstructured(z_dwdz_dd, cell_backtransform)
 
-    z_dwdz_dd_e2c = z_dwdz_dd[e2c]
+    # Remap E2C to unstructured indexing on both axes:
+    # 1) reorder rows by unstructured edge ids
+    # 2) map structured cell ids to unstructured cell ids
+    e2c_u = to_unstructured(e2c, edge_backtransform)
+    valid0 = e2c_u[:, 0] != -1
+    valid1 = e2c_u[:, 1] != -1
+    e2c_u[valid0, 0] = cell_backtransform[e2c_u[valid0, 0]]
+    e2c_u[valid1, 1] = cell_backtransform[e2c_u[valid1, 1]]
+
+    z_dwdz_dd_e2c = z_dwdz_dd_u[e2c_u]
+
+    
     
     # z_dwdz_dd_e2c has shape (n_edges, 2, n_k) when z_dwdz_dd carries a K-dim.
     # Build per-edge arrays for both neighbouring cells for all vertical levels.
@@ -65,8 +77,8 @@ def add_vertical_wind_derivative_to_divergence_damping_numpy(
         e2c0 = np.zeros((n_edges, n_k), dtype=z_dwdz_dd_e2c.dtype)
         e2c1 = np.zeros((n_edges, n_k), dtype=z_dwdz_dd_e2c.dtype)
 
-        mask0 = e2c[:, 0] != -1
-        mask1 = e2c[:, 1] != -1
+        mask0 = e2c_u[:, 0] != -1
+        mask1 = e2c_u[:, 1] != -1
 
         if np.any(mask0):
             e2c0[mask0, :] = z_dwdz_dd_e2c[mask0, 0, :]
@@ -81,24 +93,23 @@ def add_vertical_wind_derivative_to_divergence_damping_numpy(
         e2c0 = np.zeros((n_edges,), dtype=z_dwdz_dd_e2c.dtype)
         e2c1 = np.zeros((n_edges,), dtype=z_dwdz_dd_e2c.dtype)
         for i in range(n_edges):
-            e2c0[i] = z_dwdz_dd_e2c[i, 0] if e2c[i, 0] != -1 else 0.0
-            e2c1[i] = z_dwdz_dd_e2c[i, 1] if e2c[i, 1] != -1 else 0.0
+            e2c0[i] = z_dwdz_dd_e2c[i, 0] if e2c_u[i, 0] != -1 else 0.0
+            e2c1[i] = z_dwdz_dd_e2c[i, 1] if e2c_u[i, 1] != -1 else 0.0
         z_dwdz_dd_weighted = e2c1 - e2c0
 
-
     scalfac_dd3d_2d = np.expand_dims(scalfac_dd3d, axis=0)
-    hmask_dd3d_2d = np.expand_dims(hmask_dd3d, axis=-1)
-    inv_dual_edge_length_2d = np.expand_dims(inv_dual_edge_length, axis=-1)
-    
-    
-    z_graddiv_vn[horizontal_start:, :] = z_graddiv_vn[horizontal_start:, :] + (
+    hmask_dd3d_2d = np.expand_dims(hmask_dd3d_u, axis=-1)
+    inv_dual_edge_length_2d = np.expand_dims(inv_dual_edge_length_u, axis=-1)
+
+    z_graddiv_vn_final_u = np.array(z_graddiv_vn_u, copy=True)
+    z_graddiv_vn_final_u[horizontal_start:, :] = z_graddiv_vn_u[horizontal_start:, :] + (
         hmask_dd3d_2d[horizontal_start:, :]
         * scalfac_dd3d_2d
         * inv_dual_edge_length_2d[horizontal_start:, :]
         * z_dwdz_dd_weighted[horizontal_start:, :]
     )
-
-    return z_graddiv_vn
+    # Return in the original (structured) order expected by the test harness.
+    return to_structured(z_graddiv_vn_final_u, edge_backtransform)
 
 
 # @pytest.mark.skip_value_error
