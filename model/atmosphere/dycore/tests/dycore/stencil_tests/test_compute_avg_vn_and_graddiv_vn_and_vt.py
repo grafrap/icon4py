@@ -15,7 +15,7 @@ from icon4py.model.atmosphere.dycore.stencils.compute_avg_vn_and_graddiv_vn_and_
     compute_avg_vn_and_graddiv_vn_and_vt,
 )
 from icon4py.model.common import dimension as dims
-from icon4py.model.common.grid import base
+from icon4py.model.common.grid import base, horizontal as h_grid
 from icon4py.model.common.states import utils as state_utils
 from icon4py.model.common.type_alias import vpfloat, wpfloat
 from icon4py.model.common.utils.data_allocation import random_field, zero_field
@@ -28,17 +28,22 @@ def compute_avg_vn_and_graddiv_vn_and_vt_numpy(
     vn: np.ndarray,
     geofac_grdiv: np.ndarray,
     rbf_vec_coeff_e: np.ndarray,
+    horizontal_start: int,
 ) -> tuple[np.ndarray, ...]:
+    # horizontal_start = 0
     e2c2eO = connectivities[dims.E2C2EODim]
     e2c2e = connectivities[dims.E2C2EDim]
     e_flx_avg = np.expand_dims(e_flx_avg, axis=-1)
-    z_vn_avg = np.sum(vn[e2c2eO] * e_flx_avg, axis=1)
+    z_vn_avg = np.zeros_like(vn)
+    z_vn_avg[horizontal_start:, :] = np.sum(vn[e2c2eO] * e_flx_avg, axis=1)[horizontal_start:, :]
     geofac_grdiv = np.expand_dims(geofac_grdiv, axis=-1)
-    z_graddiv_vn = np.sum(
+    z_graddiv_vn = np.zeros_like(vn)
+    z_graddiv_vn[horizontal_start:, :] = np.sum(
         np.where((e2c2eO != -1)[:, :, np.newaxis], vn[e2c2eO] * geofac_grdiv, 0), axis=1
-    )
+    )[horizontal_start:, :]
     rbf_vec_coeff_e = np.expand_dims(rbf_vec_coeff_e, axis=-1)
-    vt = np.sum(np.where((e2c2e != -1)[:, :, np.newaxis], vn[e2c2e] * rbf_vec_coeff_e, 0), axis=1)
+    vt = np.zeros_like(z_graddiv_vn)
+    vt[horizontal_start:, :] = np.sum(np.where((e2c2e != -1)[:, :, np.newaxis], vn[e2c2e] * rbf_vec_coeff_e, 0), axis=1)[horizontal_start:, :]
     return z_vn_avg, z_graddiv_vn, vt
 
 
@@ -46,6 +51,7 @@ def compute_avg_vn_and_graddiv_vn_and_vt_numpy(
 class TestComputeAvgVnAndGraddivVnAndVt(StencilTest):
     PROGRAM = compute_avg_vn_and_graddiv_vn_and_vt
     OUTPUTS = ("z_vn_avg", "z_graddiv_vn", "vt")
+    ENABLE_REFERENCE_TRANSLATION_FOR_STRUCTURED_BACKEND = True
 
     @staticmethod
     def reference(
@@ -54,6 +60,7 @@ class TestComputeAvgVnAndGraddivVnAndVt(StencilTest):
         vn: np.ndarray,
         geofac_grdiv: np.ndarray,
         rbf_vec_coeff_e: np.ndarray,
+        horizontal_start: int,
         **kwargs: Any,
     ) -> dict:
         z_vn_avg, z_graddiv_vn, vt = compute_avg_vn_and_graddiv_vn_and_vt_numpy(
@@ -62,6 +69,7 @@ class TestComputeAvgVnAndGraddivVnAndVt(StencilTest):
             vn,
             geofac_grdiv,
             rbf_vec_coeff_e,
+            horizontal_start,
         )
         return dict(z_vn_avg=z_vn_avg, z_graddiv_vn=z_graddiv_vn, vt=vt)
 
@@ -74,6 +82,9 @@ class TestComputeAvgVnAndGraddivVnAndVt(StencilTest):
         z_vn_avg = zero_field(grid, dims.EdgeDim, dims.KDim, dtype=wpfloat)
         z_graddiv_vn = zero_field(grid, dims.EdgeDim, dims.KDim, dtype=vpfloat)
         vt = zero_field(grid, dims.EdgeDim, dims.KDim, dtype=vpfloat)
+        edge_domain = h_grid.domain(dims.EdgeDim)
+        horizontal_start = grid.start_index(edge_domain(h_grid.Zone.LATERAL_BOUNDARY_LEVEL_3))
+        print(f"horizonta_start: ",horizontal_start)
 
         return dict(
             e_flx_avg=e_flx_avg,
