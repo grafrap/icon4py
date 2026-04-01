@@ -16,10 +16,10 @@ from icon4py.model.atmosphere.dycore.stencils.add_extra_diffusion_for_w_con_appr
     add_extra_diffusion_for_w_con_approaching_cfl,
 )
 from icon4py.model.common import dimension as dims
-from icon4py.model.common.grid import base
+from icon4py.model.common.grid import base, horizontal as h_grid
 from icon4py.model.common.states import utils as state_utils
 from icon4py.model.common.type_alias import vpfloat, wpfloat
-from icon4py.model.common.utils.data_allocation import random_field, random_mask
+from icon4py.model.common.utils.data_allocation import random_field, random_mask, zero_field
 from icon4py.model.testing.stencil_tests import StencilTest
 
 
@@ -36,6 +36,8 @@ def add_extra_diffusion_for_w_con_approaching_cfl_numpy(
     scalfac_exdiff: ta.wpfloat,
     cfl_w_limit: ta.wpfloat,
     dtime: ta.wpfloat,
+    horizontal_start: int,
+
 ) -> np.ndarray:
     owner_mask = np.expand_dims(owner_mask, axis=-1)
     area = np.expand_dims(area, axis=-1)
@@ -52,7 +54,7 @@ def add_extra_diffusion_for_w_con_approaching_cfl_numpy(
     )
 
     c2e2cO = connectivities[dims.C2E2CODim]
-    ddt_w_adv = np.where(
+    ddt_w_adv[horizontal_start:,:] = np.where(
         (cfl_clipping == 1) & (owner_mask == 1),
         ddt_w_adv
         + difcoef
@@ -66,7 +68,9 @@ def add_extra_diffusion_for_w_con_approaching_cfl_numpy(
             axis=1,
         ),
         ddt_w_adv,
-    )
+    )[horizontal_start:,:]
+    # for all points, where the mask is true, print the neighbor values which get summed up:
+    
     return ddt_w_adv
 
 
@@ -74,6 +78,7 @@ def add_extra_diffusion_for_w_con_approaching_cfl_numpy(
 class TestAddExtraDiffusionForWConApproachingCfl(StencilTest):
     PROGRAM = add_extra_diffusion_for_w_con_approaching_cfl
     OUTPUTS = ("ddt_w_adv",)
+    ENABLE_REFERENCE_TRANSLATION_FOR_STRUCTURED_BACKEND = True
 
     @staticmethod
     def reference(
@@ -89,6 +94,7 @@ class TestAddExtraDiffusionForWConApproachingCfl(StencilTest):
         scalfac_exdiff: ta.wpfloat,
         cfl_w_limit: ta.wpfloat,
         dtime: ta.wpfloat,
+        horizontal_start: int,
         **kwargs: Any,
     ) -> dict:
         ddt_w_adv = add_extra_diffusion_for_w_con_approaching_cfl_numpy(
@@ -104,6 +110,7 @@ class TestAddExtraDiffusionForWConApproachingCfl(StencilTest):
             scalfac_exdiff,
             cfl_w_limit,
             dtime,
+            horizontal_start,
         )
         return dict(ddt_w_adv=ddt_w_adv)
 
@@ -120,6 +127,9 @@ class TestAddExtraDiffusionForWConApproachingCfl(StencilTest):
         scalfac_exdiff = wpfloat("10.0")
         cfl_w_limit = vpfloat("3.0")
         dtime = wpfloat("2.0")
+        
+        cell_domain = h_grid.domain(dims.EdgeDim)
+        horizontal_start = grid.start_index(cell_domain(h_grid.Zone.LATERAL_BOUNDARY_LEVEL_2))
 
         return dict(
             cfl_clipping=cfl_clipping,
@@ -133,7 +143,7 @@ class TestAddExtraDiffusionForWConApproachingCfl(StencilTest):
             scalfac_exdiff=scalfac_exdiff,
             cfl_w_limit=cfl_w_limit,
             dtime=dtime,
-            horizontal_start=0,
+            horizontal_start=horizontal_start,
             horizontal_end=gtx.int32(grid.num_cells),
             vertical_start=0,
             vertical_end=gtx.int32(grid.num_levels),

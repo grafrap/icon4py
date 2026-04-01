@@ -370,6 +370,16 @@ class StencilTest:
             for key, value in reference_inputs.items():
                 if key.startswith("horizontal_start"):
                     reference_inputs[key] = type(value)(edge_horizontal_start)
+        elif "Cell" in horizontal_start_by_object:
+            cell_horizontal_start = horizontal_start_by_object["Cell"]
+            for key, value in reference_inputs.items():
+                if key.startswith("horizontal_start"):
+                    reference_inputs[key] = type(value)(cell_horizontal_start)
+        elif "Vertex" in horizontal_start_by_object:
+            vertex_horizontal_start = horizontal_start_by_object["Vertex"]
+            for key, value in reference_inputs.items():
+                if key.startswith("horizontal_start"):
+                    reference_inputs[key] = type(value)(vertex_horizontal_start)
 
         for out in self.OUTPUTS:
             out_name = out.name if isinstance(out, Output) else out
