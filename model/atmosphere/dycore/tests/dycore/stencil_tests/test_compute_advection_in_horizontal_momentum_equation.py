@@ -139,6 +139,8 @@ def _add_extra_diffusion_for_normal_wind_tendency_approaching_cfl_without_levelm
 class TestFusedVelocityAdvectionStencilsHMomentum(stencil_tests.StencilTest):
     PROGRAM = compute_advection_in_horizontal_momentum
     OUTPUTS = ("normal_wind_advective_tendency",)
+    ENABLE_REFERENCE_TRANSLATION_FOR_STRUCTURED_BACKEND = True
+
     STATIC_PARAMS = {
         stencil_tests.StandardStaticVariants.NONE: (),
         stencil_tests.StandardStaticVariants.COMPILE_TIME_DOMAIN: (
@@ -288,6 +290,9 @@ class TestFusedVelocityAdvectionStencilsHMomentum(stencil_tests.StencilTest):
         edge_domain = h_grid.domain(dims.EdgeDim)
         horizontal_start = grid.start_index(edge_domain(h_grid.Zone.NUDGING_LEVEL_2))
         horizontal_end = grid.end_index(edge_domain(h_grid.Zone.LOCAL))
+        monkeypatch = request.getfixturevalue("monkeypatch")
+        lateral_margin = 5 # edge field, 4 lateral layers + 1 nudging layer
+        monkeypatch.setenv("GT4PY_TRANSLATOR_LATERAL", str(lateral_margin))
 
         return dict(
             normal_wind_advective_tendency=normal_wind_advective_tendency,

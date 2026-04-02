@@ -244,7 +244,7 @@ class StencilTest:
         grid: base.Grid,
     ) -> Callable[..., None]:
         use_structured_backend = os.environ.get("USE_STRUCTURED_BACKEND", "0") == "1"
-        if use_structured_backend and len(static_variant) == 0:
+        if use_structured_backend:
             if getattr(grid, "id", None) == "simple_grid":
                 raise RuntimeError(
                     "Structured backend is disabled for 'simple_grid'. "
