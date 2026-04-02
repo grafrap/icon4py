@@ -365,11 +365,22 @@ class StencilTest:
                     backtransform_by_object[grid_object],
                 )
 
+        edge_start_2nd_nudge_line_idx: int | None = None
+        if "Edge" in sample_by_object:
+            _, _, _, edge_start_2nd_nudge_line_idx = transform_to_unstructured(
+                sample_by_object["Edge"],
+                self.REFERENCE_TRANSLATION_NX,
+                "Edge",
+                10,
+            )
+
         if "Edge" in horizontal_start_by_object:
             edge_horizontal_start = horizontal_start_by_object["Edge"]
             for key, value in reference_inputs.items():
                 if key.startswith("horizontal_start"):
                     reference_inputs[key] = type(value)(edge_horizontal_start)
+                elif key == "start_2nd_nudge_line_idx_e" and edge_start_2nd_nudge_line_idx is not None:
+                    reference_inputs[key] = type(value)(edge_start_2nd_nudge_line_idx)
         elif "Cell" in horizontal_start_by_object:
             cell_horizontal_start = horizontal_start_by_object["Cell"]
             for key, value in reference_inputs.items():
