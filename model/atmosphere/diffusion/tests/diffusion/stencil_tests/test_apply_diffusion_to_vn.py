@@ -33,6 +33,7 @@ from .test_calculate_nabla4 import calculate_nabla4_numpy
 class TestApplyDiffusionToVn(StencilTest):
     PROGRAM = apply_diffusion_to_vn
     OUTPUTS = ("vn",)
+    ENABLE_REFERENCE_TRANSLATION_FOR_STRUCTURED_BACKEND = True
     STATIC_PARAMS = {
         StandardStaticVariants.NONE: (),
         StandardStaticVariants.COMPILE_TIME_DOMAIN: (
