@@ -115,7 +115,7 @@ class Triangle:
         Parameters:
             vertex : Vertex to be colored ('A', 'B', or 'C')
         """
-        vertex_size = self.vertex_size - 2 * coloridx
+        vertex_size = self.vertex_size - 8# * coloridx
         match vertex:
             case "A":
                 self.ax.plot(
@@ -142,7 +142,7 @@ class Triangle:
         """
         Fills the triangle area with color, leaving some distance from the sides.
         """
-        cell_offset = self.cell_offset + self.cell_offset / 8 * coloridx
+        cell_offset = self.cell_offset #+ self.cell_offset / 8 * coloridx
         if self.orientation == "up":
             A = (
                 self.A[0] + cell_offset * np.cos(np.pi / 6),
@@ -174,7 +174,15 @@ class Triangle:
         Parameters:
             edge : Edge to be colored ('AB', 'BC', or 'CA')
         """
-        edge_offset = self.edge_offset + self.edge_offset / 4 * coloridx
+        # allow passing a color string instead of a color index
+        if isinstance(coloridx, (int, np.integer)):
+            offset_factor = coloridx
+            color = COLORS[coloridx]
+        else:
+            offset_factor = 0
+            color = coloridx
+
+        edge_offset = self.edge_offset #+ self.edge_offset / 4 #* offset_factor
         match (edge, self.orientation):
             case ("AB", "up"):
                 V0 = (self.A[0] + edge_offset, self.A[1])
@@ -222,8 +230,8 @@ class Triangle:
         self.ax.plot(
             [V0[0], V1[0]],
             [V0[1], V1[1]],
-            color=COLORS[coloridx],
-            linewidth=self.bold_line - coloridx if linewidth is None else linewidth,
+            color=color,
+            linewidth=self.bold_line - offset_factor if linewidth is None else linewidth,
         )
 
     def color_edges(self, coloridx=0, linewidth=None):
@@ -771,6 +779,30 @@ def generate_parallelogram_colored_loops(nx: int, ny: int, loops: int, label: st
     loops = min(loops, max_loops)
 
     palette = COLORS
+    intermediate_color = "#8A2BE2"  # purple for intermediate layer (fallback)
+    # helper: return a lighter version of a color (hex or named)
+    def lighten_color(col, amount=0.5):
+        try:
+            rgb = mcolors.to_rgb(col)
+        except Exception:
+            rgb = (0.5, 0.5, 0.5)
+        lighter = tuple(c + (1.0 - c) * amount for c in rgb)
+        return mcolors.to_hex(lighter)
+
+    # build vertex dictionary: (i,j) -> (x,y), with i=0..nx, j=0..ny
+    verts = {}
+    for j in range(ny + 1):
+        for i in range(nx + 1):
+            vx = x0 + i * v1[0] + j * v2[0]
+            vy = y0 + i * v1[1] + j * v2[1]
+            verts[(i, j)] = (vx, vy)
+
+    # palette for connector layers (edges joining two consecutive loops)
+    CONNECTOR_COLORS = ["#8A2BE2", "#7FFFD4", "#FFD700", "#FF69B4", "#00CED1", "#ADFF2F"]
+
+    # map triangle keys to objects for quick lookup: ((i,j,orient) -> Triangle)
+    tri_map = {key: tri for (key, tri) in triangles}
+
     # helper to find triangle edge for a vertex pair
     def find_triangle_edge(pA, pB):
         for (_, tri) in triangles:
@@ -795,7 +827,7 @@ def generate_parallelogram_colored_loops(nx: int, ny: int, loops: int, label: st
             B = (x0 + (i + 1) * v1[0] + j1 * v2[0], y0 + (i + 1) * v1[1] + j1 * v2[1])
             tri, edge = find_triangle_edge(A, B)
             if tri is not None:
-                tri.color_edge(edge, k % len(palette))
+                tri.color_edge(edge, k % len(palette), linewidth=1.5)
             else:
                 # fallback: draw the colored line directly to ensure coverage
                 ax.plot([A[0], B[0]], [A[1], B[1]], color=COLORS[k % len(palette)], linewidth=3)
@@ -806,7 +838,7 @@ def generate_parallelogram_colored_loops(nx: int, ny: int, loops: int, label: st
             B = (x0 + i1 * v1[0] + (j + 1) * v2[0], y0 + i1 * v1[1] + (j + 1) * v2[1])
             tri, edge = find_triangle_edge(A, B)
             if tri is not None:
-                tri.color_edge(edge, k % len(palette))
+                tri.color_edge(edge, k % len(palette), linewidth=1.5)
             else:
                 ax.plot([A[0], B[0]], [A[1], B[1]], color=COLORS[k % len(palette)], linewidth=3)
 
@@ -816,7 +848,7 @@ def generate_parallelogram_colored_loops(nx: int, ny: int, loops: int, label: st
             B = (x0 + (i + 1) * v1[0] + j0 * v2[0], y0 + (i + 1) * v1[1] + j0 * v2[1])
             tri, edge = find_triangle_edge(A, B)
             if tri is not None:
-                tri.color_edge(edge, k % len(palette))
+                tri.color_edge(edge, k % len(palette), linewidth=1.5)
             else:
                 ax.plot([A[0], B[0]], [A[1], B[1]], color=COLORS[k % len(palette)], linewidth=3)
 
@@ -826,9 +858,105 @@ def generate_parallelogram_colored_loops(nx: int, ny: int, loops: int, label: st
             B = (x0 + i0 * v1[0] + (j + 1) * v2[0], y0 + i0 * v1[1] + (j + 1) * v2[1])
             tri, edge = find_triangle_edge(A, B)
             if tri is not None:
-                tri.color_edge(edge, k % len(palette))
+                tri.color_edge(edge, k % len(palette), linewidth=1.5)
             else:
                 ax.plot([A[0], B[0]], [A[1], B[1]], color=COLORS[k % len(palette)], linewidth=3)
+
+        # color connector edges between layer k and k+1 (all edge orientations)
+        if k < loops:
+            # derive connector color as a lighter version of the outer loop color
+            outer_color = palette[k % len(palette)]
+            conn_color = lighten_color(outer_color, amount=0.6)
+
+            # horizontal edges: (i,i+1) at constant j
+            for j in range(0, ny + 1):
+                for i in range(0, nx):
+                    u = (i, j)
+                    v = (i + 1, j)
+                    lu = min(u[0], u[1], nx - u[0], ny - u[1])
+                    lv = min(v[0], v[1], nx - v[0], ny - v[1])
+                    if {lu, lv} == {k, k + 1}:
+                        A = verts[u]
+                        B = verts[v]
+                        tri, edge = find_triangle_edge(A, B)
+                        if tri is not None:
+                            tri.color_edge(edge, conn_color, linewidth=2)
+                        else:
+                            ax.plot([A[0], B[0]], [A[1], B[1]], color=conn_color, linewidth=2)
+
+            # vertical edges: (j,j+1) at constant i
+            for i in range(0, nx + 1):
+                for j in range(0, ny):
+                    u = (i, j)
+                    v = (i, j + 1)
+                    lu = min(u[0], u[1], nx - u[0], ny - u[1])
+                    lv = min(v[0], v[1], nx - v[0], ny - v[1])
+                    if {lu, lv} == {k, k + 1}:
+                        A = verts[u]
+                        B = verts[v]
+                        tri, edge = find_triangle_edge(A, B)
+                        if tri is not None:
+                            tri.color_edge(edge, conn_color, linewidth=2)
+                        else:
+                            ax.plot([A[0], B[0]], [A[1], B[1]], color=conn_color, linewidth=2)
+
+            # diagonal edges: (i+1,j) -- (i,j+1)
+            for i in range(0, nx):
+                for j in range(0, ny):
+                    u = (i + 1, j)
+                    v = (i, j + 1)
+                    lu = min(u[0], u[1], nx - u[0], ny - u[1])
+                    lv = min(v[0], v[1], nx - v[0], ny - v[1])
+                    # normal connector between consecutive layers
+                    cond1 = {lu, lv} == {k, k + 1}
+                    # special-case corner diagonals: both endpoints report layer k
+                    # but the diagonal lies between loop k and k+1 (bottom-left or top-right)
+                    cond2 = (lu == lv == k) and (
+                        (i == i0 and j == j0) or (i == i1 - 1 and j == j1 - 1)
+                    )
+                    if cond1 or cond2:
+                        A = verts[u]
+                        B = verts[v]
+                        tri, edge = find_triangle_edge(A, B)
+                        if tri is not None:
+                            tri.color_edge(edge, conn_color, linewidth=2)
+                        else:
+                            ax.plot([A[0], B[0]], [A[1], B[1]], color=conn_color, linewidth=2)
+
+        # collect this loop's vertex points so we can color vertices
+        loop_vertices = set()
+        for i in range(i0, i1 + 1):
+            loop_vertices.add(verts[(i, j1)])
+            loop_vertices.add(verts[(i, j0)])
+        for j in range(j0, j1 + 1):
+            loop_vertices.add(verts[(i0, j)])
+            loop_vertices.add(verts[(i1, j)])
+
+        # color vertices for this loop
+        for p in loop_vertices:
+            for (key, tri) in triangles:
+                if np.allclose(tri.A, p):
+                    tri.color_vertex("A", k % len(palette))
+                    break
+                if np.allclose(tri.B, p):
+                    tri.color_vertex("B", k % len(palette))
+                    break
+                if np.allclose(tri.C, p):
+                    tri.color_vertex("C", k % len(palette))
+                    break
+
+        # color entire unit parallelograms (both up/down triangles) for this layer
+        for i in range(i0, i1):
+            for j in range(j0, j1):
+                # compute unit cell layer
+                unit_layer = min(i, j, nx - 1 - i, ny - 1 - j)
+                if unit_layer == k:
+                    up_key = (i, j, "up")
+                    down_key = (i, j, "down")
+                    if up_key in tri_map:
+                        tri_map[up_key].color_cell(k % len(palette))
+                    if down_key in tri_map:
+                        tri_map[down_key].color_cell(k % len(palette))
 
     ax.set_aspect("equal")
     ax.axis("off")
@@ -874,7 +1002,7 @@ def generate_page(static_dir: str):
 # ===============================================================================
 if __name__ == "__main__":
     # generate the existing offset provider figures
-    generate_figures()
+    # generate_figures()
 
     # generate unit cell image
     generate_unit_cell_figure(static_dir=".")
