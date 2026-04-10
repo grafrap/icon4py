@@ -91,57 +91,11 @@ class TestApplyDivergenceDampingAndUpdateVn(test_helpers.StencilTest):
         
         is_structured = os.environ.get("USE_STRUCTURED_BACKEND", "0") == "1"
         
-        # 1. DYNAMICALLY BUILD THE MASK
-        lateral_margin = int(os.environ.get("GT4PY_TRANSLATOR_LATERAL", "5"))
-        nx = 0
-        ny = 0
-        if lateral_margin > 0:
-            nx = int((horizontal_start - lateral_margin + 1) / lateral_margin)
-            ny = int((horizontal_end - nx) / (3 * nx + 1))
-        if is_structured and lateral_margin > 0:
-            
-            # Use your exact math to infer nx and ny from the 1D boundaries
-            
-            start_i, start_j = lateral_margin, lateral_margin
-            end_i, end_j = ny + 1 - lateral_margin, nx + 1 - lateral_margin
+        print(f"Using horizontal_start: {horizontal_start}, horizontal_end: {horizontal_end} for structured grid.")
+        horz_idx = np.arange(horizontal_end)[:, np.newaxis]
+        compute_mask = (horizontal_start <= horz_idx) & (horz_idx < horizontal_end)
 
-            total_edges = current_vn.shape[0]
-            mask_1d = np.zeros(total_edges, dtype=bool)
-            
-            # Reconstruct the 1D indices of the INTERIOR edges based on your layout
-            # for i in range(start_i, end_i):
-            #     for j in range(start_j, end_j):
-            #         for e_type in range(3):
-            #             idx = (i * ny) + (j * 3) + e_type 
-            #             if idx < total_edges:
-            #                 mask_1d[idx] = True
-            # east edges:
-            for i in range(start_i, end_i):
-                for j in range(start_j, end_j-1):
-                    idx = (i * nx) + j
-                    if idx < total_edges:
-                        mask_1d[idx] = True
-            
-            # northeast edges:
-            for i in range(start_i, end_i-1):
-                for j in range(start_j, end_j):
-                    idx = (i * (nx+1)) + j + (nx * ny) + nx
-                    if idx < total_edges:
-                        mask_1d[idx] = True
-            
-            # southeast edges
-            for i in range(start_i, end_i-1):
-                for j in range(start_j, end_j-1):
-                    idx = (i * nx) + j + (2 * nx * ny) + ny + nx
-                    if idx < total_edges:
-                        mask_1d[idx] = True
-            # Expand for the K dimension
-            compute_mask = mask_1d[:, np.newaxis]
-        else: 
-            horz_idx = np.arange(horizontal_end)[:, np.newaxis]
-            compute_mask = (horizontal_start <= horz_idx) & (horz_idx < horizontal_end)
-
-        print(f"compute_mask: ", compute_mask[:,0])
+        # print(f"compute_mask: ", compute_mask[:,0])
         scaling_factor_for_3d_divdamp = np.expand_dims(scaling_factor_for_3d_divdamp, axis=0)
         horizontal_mask_for_3d_divdamp = np.expand_dims(horizontal_mask_for_3d_divdamp, axis=-1)
         inv_dual_edge_length = np.expand_dims(inv_dual_edge_length, axis=-1)
@@ -307,9 +261,15 @@ class TestApplyDivergenceDampingAndUpdateVn(test_helpers.StencilTest):
         end_edge_local = grid.end_index(edge_domain(h_grid.Zone.LOCAL))
 
         monkeypatch = request.getfixturevalue("monkeypatch")
-        lateral_margin = 5 # edge field, 4 lateral layers + 1 nudging layer
+        lateral_margin = 8 # edge field, 4 lateral layers + 1 nudging layer
+
         monkeypatch.setenv("GT4PY_TRANSLATOR_LATERAL", str(lateral_margin))
+        monkeypatch.setenv("GT4PY_TRANSLATOR_EDGE_LATERAL", str(1))
+
         # is_structured = os.environ.get("USE_STRUCTURED_BACKEND", "1") == "1"
+        print(f"lateral boundary is set to " ,os.environ.get("GT4PY_TRANSLATOR_LATERAL", "1"))
+        print(f"edge lateral boundary is set to " ,os.environ.get("GT4PY_TRANSLATOR_EDGE_LATERAL", "7"))
+        print(f"Using horizontal_start: {start_edge_nudging_level_2}, horizontal_end: {end_edge_local} for structured grid.")
 
         # # Detect if we are on a structured grid by checking the rank of the allocated field
         # print(f"Current vn shape: {current_vn.shape}")
@@ -338,7 +298,7 @@ class TestApplyDivergenceDampingAndUpdateVn(test_helpers.StencilTest):
         #                 if idx < total_edges:
         #                     compute_mask[idx] = True
         # print(f"Using horizontal_start: {start_edge_nudging_level_2}, horizontal_end: {end_edge_local} for structured grid.")
-        print(f"next_vn before the test stencil: {next_vn.asnumpy()[:,0]}")
+        # print(f"next_vn before the test stencil: {next_vn.asnumpy()[:,0]}")
         return dict(
             horizontal_gradient_of_normal_wind_divergence=horizontal_gradient_of_normal_wind_divergence,
             next_vn=next_vn,

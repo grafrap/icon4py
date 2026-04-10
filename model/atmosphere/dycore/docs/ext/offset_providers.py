@@ -17,7 +17,7 @@ import numpy as np
 SIDE: Final = 1  # Length of each triangle side
 LABEL_TRIANGLES: Final = False  # Option to label each triangle center with its ID
 COLORS: Final = list(mcolors.TABLEAU_COLORS.values())
-AX_BORDER: Final = 0.05 * SIDE  # Border around the axes
+AX_BORDER: Final = 0.1 * SIDE  # Border around the axes
 IMG_DIR = "img"
 
 
@@ -33,6 +33,7 @@ class Triangle:
         self.edge_offset = 0.25 * SIDE
         self.vertex_size = 10
         self.bold_line = 6
+        self.edge_linewidth = 1.0
 
     def calculate_vertices(self):
         if self.orientation == "up":
@@ -56,7 +57,7 @@ class Triangle:
 
     def draw(self):
         # Draw the triangle edges
-        triangle = plt.Polygon([self.A, self.B, self.C], edgecolor="black", fill=None)
+        triangle = plt.Polygon([self.A, self.B, self.C], edgecolor="black", fill=None, linewidth=self.edge_linewidth)
         self.ax.add_patch(triangle)
 
     def print_labels(self, tri_id):
@@ -167,7 +168,7 @@ class Triangle:
         filled_triangle = plt.Polygon([A, B, C], edgecolor=None, facecolor=COLORS[coloridx])
         self.ax.add_patch(filled_triangle)
 
-    def color_edge(self, edge, coloridx=0):
+    def color_edge(self, edge, coloridx=0, linewidth=3):
         """
         Colors the specified edge of the triangle, making the line a bit bolder and leaving some distance from the vertices.
         Parameters:
@@ -222,16 +223,16 @@ class Triangle:
             [V0[0], V1[0]],
             [V0[1], V1[1]],
             color=COLORS[coloridx],
-            linewidth=self.bold_line - coloridx,
+            linewidth=self.bold_line - coloridx if linewidth is None else linewidth,
         )
 
-    def color_edges(self, coloridx=0):
+    def color_edges(self, coloridx=0, linewidth=None):
         """
         Colors the edges of the triangle, making the lines a bit bolder and leaving some distance from the vertices.
         """
-        self.color_edge("AB", coloridx)
-        self.color_edge("BC", coloridx)
-        self.color_edge("CA", coloridx)
+        self.color_edge("AB", coloridx, linewidth)
+        self.color_edge("BC", coloridx, linewidth)
+        self.color_edge("CA", coloridx, linewidth)
 
 
 # ===============================================================================
@@ -525,6 +526,319 @@ def generate_figures(static_dir: str = "."):
     fig.save()
 
 
+# ==============================================================================
+def draw_unit_parallelogram(ax, x0, y0, color=None):
+    """
+    Draws a single unit parallelogram starting at (x0, y0).
+    The parallelogram is defined by vectors v1=(SIDE,0) and v2=(SIDE/2, height).
+    Returns the list of corner points.
+    """
+    height = SIDE * np.sqrt(3) / 2
+    v1 = (SIDE, 0)
+    v2 = (SIDE / 2, height)
+
+    p0 = (x0, y0)
+    p1 = (x0 + v1[0], y0 + v1[1])
+    p2 = (p1[0] + v2[0], p1[1] + v2[1])
+    p3 = (x0 + v2[0], y0 + v2[1])
+
+    poly = plt.Polygon([p0, p1, p2, p3], closed=True, edgecolor="black", facecolor="none")
+    ax.add_patch(poly)
+    return [p0, p1, p2, p3]
+
+
+# ==============================================================================
+def draw_parallelogram_grid(ax, nx, ny, x0=0.0, y0=0.0):
+    """
+    Draws a grid of unit parallelograms of size nx (horizontal) by ny (vertical).
+    Also draws a bold outer boundary to make the full edges visible.
+    """
+    height = SIDE * np.sqrt(3) / 2
+    v1 = (SIDE, 0)
+    v2 = (SIDE / 2, height)
+
+    # draw all unit parallelograms as pairs of triangles
+    triangles = []
+    for j in range(ny):
+        for i in range(nx):
+            ox = x0 + i * v1[0] + j * v2[0]
+            oy = y0 + i * v1[1] + j * v2[1]
+            # up triangle at (ox,oy)
+            up = Triangle(ax, ox, oy, "up")
+            up.draw()
+            triangles.append(((i, j, "up"), up))
+            # down triangle to the right of up triangle
+            down = Triangle(ax, ox + SIDE, oy, "down")
+            down.draw()
+            triangles.append(((i, j, "down"), down))
+
+    # draw outer boundary (large parallelogram)
+    P0 = (x0, y0)
+    P1 = (x0 + nx * v1[0], y0 + nx * v1[1])
+    P2 = (P1[0] + ny * v2[0], P1[1] + ny * v2[1])
+    P3 = (x0 + ny * v2[0], y0 + ny * v2[1])
+
+    ax.plot([P0[0], P1[0], P2[0], P3[0], P0[0]], [P0[1], P1[1], P2[1], P3[1], P0[1]],
+            color="black", linewidth=1)
+
+    # compute reasonable limits
+    minx = min(P0[0], P1[0], P2[0], P3[0]) - AX_BORDER
+    maxx = max(P0[0], P1[0], P2[0], P3[0]) + AX_BORDER
+    miny = min(P0[1], P1[1], P2[1], P3[1]) - AX_BORDER
+    maxy = max(P0[1], P1[1], P2[1], P3[1]) + AX_BORDER
+
+    return triangles, (minx, maxx), (miny, maxy)
+
+
+# ==============================================================================
+def generate_parallelogram_figure(nx: int, ny: int, label: str, static_dir: str = "."):
+    """
+    Generates and saves a figure showing a parallelogram grid.
+    """
+    fig = plt.figure()
+    plt.clf()
+    ax = fig.add_subplot(111)
+    triangles, xlims, ylims = draw_parallelogram_grid(ax, nx, ny, x0=0.0, y0=0.0)
+    ax.set_title(f"Parallelogram grid: {label}")
+    ax.set_xlim(xlims)
+    ax.set_ylim(ylims)
+    ax.set_aspect("equal")
+    ax.axis("off")
+
+    figure_dir = os.path.join(static_dir, IMG_DIR)
+    os.makedirs(figure_dir, exist_ok=True)
+    fname = os.path.join(figure_dir, f"offsetProvider_parallelogram_{label}.png")
+    fig.savefig(fname, dpi=300, bbox_inches="tight")
+    return fig, ax, triangles
+
+
+# ==============================================================================
+def generate_unit_cell_figure(static_dir: str = "."):
+    """
+    Generate and save a PNG showing a single unit cell: the up-triangle
+    (vertex lower-left) with its three edges, and the adjacent down-triangle
+    filled but without its edges/vertices.
+    """
+    height = SIDE * np.sqrt(3) / 2
+    x0, y0 = 0.0, 0.0
+    v1 = (SIDE, 0)
+    v2 = (SIDE / 2, height)
+
+    p0 = (x0, y0)
+    p1 = (x0 + v1[0], y0 + v1[1])
+    p2 = (p1[0] + v2[0], p1[1] + v2[1])
+    p3 = (x0 + v2[0], y0 + v2[1])
+
+    fig = plt.figure()
+    plt.clf()
+    ax = fig.add_subplot(111)
+
+    # Colors: cells blue, vertices green, edges orange
+    cell_color = "tab:blue"
+    vertex_color = "tab:green"
+    edge_color = "tab:orange"
+
+    # Use Triangle helpers so coloring functions are consistent
+    up = Triangle(ax, p0[0], p0[1], "up")
+    down = Triangle(ax, p1[0], p1[1], "down")
+
+    # draw base outlines
+    up.draw()
+    down.draw()
+
+    # fill cells with color index 0 (blue), color edges with 1 (orange), vertices with 2 (green)
+    up.color_cell(0)
+    up.color_edges(1, linewidth=5)
+    up.color_vertex("A", 2)
+
+    # fill the down triangle only (no edges/vertices)
+    down.color_cell(0)
+
+    # set limits
+    ax.set_xlim(-AX_BORDER, p2[0] + AX_BORDER)
+    ax.set_ylim(-0.2, p2[1] + AX_BORDER)
+    ax.set_aspect("equal")
+    ax.axis("off")
+
+    figure_dir = os.path.join(static_dir, IMG_DIR)
+    os.makedirs(figure_dir, exist_ok=True)
+    fname = os.path.join(figure_dir, "offsetProvider_unit_cell.png")
+    fig.savefig(fname, dpi=300, bbox_inches="tight")
+    return fig, ax
+
+
+# ==============================================================================
+def generate_parallelogram_with_colored_boundary(nx: int, ny: int, label: str, static_dir: str = ".", color="red"):
+    """
+    Generate a parallelogram grid image and recolor the outer boundary edges
+    (the edges added after tiling unit cells) with `color`.
+    """
+    fig, ax, triangles = generate_parallelogram_figure(nx, ny, label, static_dir)
+
+    # build vertex dictionary: (i,j) -> (x,y), with i=0..nx, j=0..ny
+    height = SIDE * np.sqrt(3) / 2
+    v1 = (SIDE, 0)
+    v2 = (SIDE / 2, height)
+    x0, y0 = 0.0, 0.0
+    verts = {}
+    for j in range(ny + 1):
+        for i in range(nx + 1):
+            vx = x0 + i * v1[0] + j * v2[0]
+            vy = y0 + i * v1[1] + j * v2[1]
+            verts[(i, j)] = (vx, vy)
+
+    # helper to find a triangle and its edge name for a vertex pair
+    def find_triangle_edge(pA, pB):
+        for (_, tri) in triangles:
+            for edge in ("AB", "BC", "CA"):
+                coords = {"AB": (tri.A, tri.B), "BC": (tri.B, tri.C), "CA": (tri.C, tri.A)}[edge]
+                # use allclose to avoid floating-point mismatches
+                if (np.allclose(coords[0], pA) and np.allclose(coords[1], pB)) or (
+                    np.allclose(coords[0], pB) and np.allclose(coords[1], pA)
+                ):
+                    return tri, edge
+        return None, None
+
+    # color topmost edges (j = ny) in blue with linewidth 3
+    blue_idx = 3
+    for i in range(nx):
+        A = verts[(i, ny)]
+        B = verts[(i + 1, ny)]
+        tri, edge = find_triangle_edge(A, B)
+        if tri is not None:
+            tri.color_edge(edge, blue_idx, linewidth=2)
+
+    # color rightmost edges (i = nx) in blue with linewidth 3
+    for j in range(ny):
+        A = verts[(nx, j)]
+        B = verts[(nx, j + 1)]
+        tri, edge = find_triangle_edge(A, B)
+        if tri is not None:
+            tri.color_edge(edge, blue_idx, linewidth=2)
+
+    # color vertices along top row and right column (use color index 3)
+    def find_triangle_with_vertex(p):
+        for (_, tri) in triangles:
+            if tri.A == p or tri.B == p or tri.C == p:
+                return tri
+        return None
+
+    # color the vertices along top row and right column using blue index
+    for i in range(nx + 1):
+        p = verts[(i, ny)]
+        tri = find_triangle_with_vertex(p)
+        if tri is not None:
+            if tri.A == p:
+                tri.color_vertex("A", blue_idx)
+            elif tri.B == p:
+                tri.color_vertex("B", blue_idx)
+            else:
+                tri.color_vertex("C", blue_idx)
+    for j in range(ny + 1):
+        p = verts[(nx, j)]
+        tri = find_triangle_with_vertex(p)
+        if tri is not None:
+            if tri.A == p:
+                tri.color_vertex("A", blue_idx)
+            elif tri.B == p:
+                tri.color_vertex("B", blue_idx)
+            else:
+                tri.color_vertex("C", blue_idx)
+
+    figure_dir = os.path.join(static_dir, IMG_DIR)
+    fname = os.path.join(figure_dir, f"offsetProvider_parallelogram_{label}_boundary_{color}.png")
+    fig.savefig(fname, dpi=300, bbox_inches="tight")
+    return fig, ax
+
+
+# ==============================================================================
+def generate_parallelogram_colored_loops(nx: int, ny: int, loops: int, label: str, static_dir: str = "."):
+    """
+    Generate a parallelogram grid of size nx x ny and overlay up to `loops`
+    concentric edge-loops, coloring each loop with a different color.
+    """
+    fig = plt.figure()
+    plt.clf()
+    ax = fig.add_subplot(111)
+    triangles, _, _ = draw_parallelogram_grid(ax, nx, ny, x0=0.0, y0=0.0)
+
+    height = SIDE * np.sqrt(3) / 2
+    v1 = (SIDE, 0)
+    v2 = (SIDE / 2, height)
+    x0, y0 = 0.0, 0.0
+
+    max_loops = min(nx, ny) // 2
+    loops = min(loops, max_loops)
+
+    palette = COLORS
+    # helper to find triangle edge for a vertex pair
+    def find_triangle_edge(pA, pB):
+        for (_, tri) in triangles:
+            for edge in ("AB", "BC", "CA"):
+                coords = {"AB": (tri.A, tri.B), "BC": (tri.B, tri.C), "CA": (tri.C, tri.A)}[edge]
+                if (np.allclose(coords[0], pA) and np.allclose(coords[1], pB)) or (
+                    np.allclose(coords[0], pB) and np.allclose(coords[1], pA)
+                ):
+                    return tri, edge
+        return None, None
+
+    for k in range(loops):
+        i0 = k
+        j0 = k
+        i1 = nx - k
+        j1 = ny - k
+
+        # enumerate edges along the four sides and color via Triangle.color_edge
+        # top side: (i=i0..i1-1, j=j1)
+        for i in range(i0, i1):
+            A = (x0 + i * v1[0] + j1 * v2[0], y0 + i * v1[1] + j1 * v2[1])
+            B = (x0 + (i + 1) * v1[0] + j1 * v2[0], y0 + (i + 1) * v1[1] + j1 * v2[1])
+            tri, edge = find_triangle_edge(A, B)
+            if tri is not None:
+                tri.color_edge(edge, k % len(palette))
+            else:
+                # fallback: draw the colored line directly to ensure coverage
+                ax.plot([A[0], B[0]], [A[1], B[1]], color=COLORS[k % len(palette)], linewidth=3)
+
+        # right side: (j=j0..j1-1, i=i1)
+        for j in range(j0, j1):
+            A = (x0 + i1 * v1[0] + j * v2[0], y0 + i1 * v1[1] + j * v2[1])
+            B = (x0 + i1 * v1[0] + (j + 1) * v2[0], y0 + i1 * v1[1] + (j + 1) * v2[1])
+            tri, edge = find_triangle_edge(A, B)
+            if tri is not None:
+                tri.color_edge(edge, k % len(palette))
+            else:
+                ax.plot([A[0], B[0]], [A[1], B[1]], color=COLORS[k % len(palette)], linewidth=3)
+
+        # bottom side: (i=i0..i1-1, j=j0)
+        for i in range(i0, i1):
+            A = (x0 + i * v1[0] + j0 * v2[0], y0 + i * v1[1] + j0 * v2[1])
+            B = (x0 + (i + 1) * v1[0] + j0 * v2[0], y0 + (i + 1) * v1[1] + j0 * v2[1])
+            tri, edge = find_triangle_edge(A, B)
+            if tri is not None:
+                tri.color_edge(edge, k % len(palette))
+            else:
+                ax.plot([A[0], B[0]], [A[1], B[1]], color=COLORS[k % len(palette)], linewidth=3)
+
+        # left side: (j=j0..j1-1, i=i0)
+        for j in range(j0, j1):
+            A = (x0 + i0 * v1[0] + j * v2[0], y0 + i0 * v1[1] + j * v2[1])
+            B = (x0 + i0 * v1[0] + (j + 1) * v2[0], y0 + i0 * v1[1] + (j + 1) * v2[1])
+            tri, edge = find_triangle_edge(A, B)
+            if tri is not None:
+                tri.color_edge(edge, k % len(palette))
+            else:
+                ax.plot([A[0], B[0]], [A[1], B[1]], color=COLORS[k % len(palette)], linewidth=3)
+
+    ax.set_aspect("equal")
+    ax.axis("off")
+    figure_dir = os.path.join(static_dir, IMG_DIR)
+    os.makedirs(figure_dir, exist_ok=True)
+    fname = os.path.join(figure_dir, f"offsetProvider_parallelogram_{label}_loops_{loops}.png")
+    fig.savefig(fname, dpi=300, bbox_inches="tight")
+    return fig, ax
+
+
 # ===============================================================================
 def generate_page(static_dir: str):
     """
@@ -559,5 +873,17 @@ def generate_page(static_dir: str):
 
 # ===============================================================================
 if __name__ == "__main__":
+    # generate the existing offset provider figures
     generate_figures()
-    plt.show()
+
+    # generate unit cell image
+    generate_unit_cell_figure(static_dir=".")
+
+    # generate a 10x8 parallelogram and a recolored-boundary copy
+    generate_parallelogram_figure(10, 8, "10x8", static_dir=".")
+    generate_parallelogram_with_colored_boundary(10, 8, "10x8", static_dir=".", color="red")
+
+    # generate a larger 20x15 with 5 colored loops
+    generate_parallelogram_colored_loops(20, 15, 5, "20x15", static_dir=".")
+
+    # plt.show()

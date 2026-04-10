@@ -10,6 +10,8 @@ import argparse
 import math
 import json
 import sys
+import numpy as np
+from gt4py.next.modules.translator import transform_to_unstructured
 
 
 def parse_array(bracketed_text: str):
@@ -43,8 +45,12 @@ def main():
         print('Could not find two bracketed arrays in the file.', file=sys.stderr)
         sys.exit(3)
 
-    a = parse_array(groups[0])
-    b = parse_array(groups[1])
+    a_ = np.array(parse_array(groups[0]))
+    b_ = np.array(parse_array(groups[1]))
+
+    trafo = transform_to_unstructured(a_, 13)[1]
+    a = a_[trafo] # only necessary, if we do unstructured backend !!!
+    b = b_[trafo]
 
     n = min(len(a), len(b))
     matches = [math.isclose(a[i], b[i], rel_tol=args.rtol, abs_tol=args.atol) for i in range(n)]

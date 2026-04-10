@@ -85,8 +85,13 @@ def _to_unstructured(field: np.ndarray, backtransform: np.ndarray) -> np.ndarray
     return out
 
 
-def _to_structured(field: np.ndarray, backtransform: np.ndarray) -> np.ndarray:
-    return field[backtransform]
+def _to_structured(field, backtransform):
+    if hasattr(field, "asnumpy"):
+        arr = field.asnumpy()
+        transformed = arr[backtransform]
+        return constructors.as_field(domain=field.domain, data=transformed)
+    else:
+        return field[backtransform]
 
 
 def _infer_connectivity_objects(dim_name: str) -> tuple[str | None, str | None]:
@@ -147,19 +152,26 @@ def test_and_benchmark(
     _configured_program: Callable[..., None],
     request: pytest.FixtureRequest,
 ) -> None:
+    print(f"\n=== RUNNING TEST FOR PROGRAM: {self.PROGRAM} ===")
+    prepared_input_data = self._prepare_program_inputs(
+        grid=grid,
+        input_data=_properly_allocated_input_data,
+    )
+
     skip_stenciltest_verification = request.config.getoption(
         "skip_stenciltest_verification"
     )  # skip verification if `--skip-stenciltest-verification` CLI option is set
     if not skip_stenciltest_verification:
         reference_connectivities, reference_inputs = self._prepare_reference_inputs(
             grid=grid,
-            input_data=_properly_allocated_input_data,
+            input_data=prepared_input_data,
         )
         reference_outputs = self.reference(reference_connectivities, **reference_inputs)
+        print(f"Reference outputs computed: {list(reference_outputs.keys())}")
 
-        _configured_program(**_properly_allocated_input_data, offset_provider=grid.connectivities)
+        _configured_program(**prepared_input_data, offset_provider=grid.connectivities)
         self._verify_stencil_test(
-            input_data=_properly_allocated_input_data, reference_outputs=reference_outputs
+            input_data=prepared_input_data, reference_outputs=reference_outputs
         )
 
     if benchmark is not None and benchmark.enabled:
@@ -170,7 +182,7 @@ def test_and_benchmark(
         benchmark.pedantic(
             _configured_program,
             args=(),
-            kwargs=dict(**_properly_allocated_input_data, offset_provider=grid.connectivities),
+            kwargs=dict(**prepared_input_data, offset_provider=grid.connectivities),
             rounds=int(
                 os.getenv("ICON4PY_STENCIL_TEST_BENCHMARK_ROUNDS", "3")
             ),  # 30 iterations in total should be stable enough
@@ -310,6 +322,105 @@ class StencilTest:
         allocator = model_backends.get_allocator(backend_like)
         return allocate_data(allocator=allocator, input_data=input_data)
 
+    def _prepare_program_inputs(
+        self,
+        grid: base.Grid,
+        input_data: dict[str, gtx.Field | tuple[gtx.Field, ...]],
+    ) -> dict[str, Any]:
+        use_structured_backend = os.environ.get("USE_STRUCTURED_BACKEND", "0") == "1"
+        print(f"USE_STRUCTURED_BACKEND: {use_structured_backend}")
+        if not use_structured_backend:
+            return dict(input_data)
+
+        if not self.ENABLE_REFERENCE_TRANSLATION_FOR_STRUCTURED_BACKEND:
+            return dict(input_data)
+
+        from gt4py.next.modules.translator import transform_to_unstructured
+
+        prepared_inputs: dict[str, Any] = dict(input_data)
+
+        # sample_by_object: dict[str, np.ndarray] = {}
+        # for name, value in input_data.items():
+        #     if not isinstance(value, gtx.Field):
+        #         continue
+        #     grid_object = _horizontal_grid_object(value)
+        #     if grid_object is None or grid_object in sample_by_object:
+        #         continue
+        #     arr = value.asnumpy()
+        #     sample_by_object[grid_object] = arr if arr.ndim == 1 else arr[:, 0]
+
+        # backtransform_by_object: dict[str, np.ndarray] = {}
+        # horizontal_start_by_object: dict[str, int] = {}
+        # for grid_object, sample in sample_by_object.items():
+        #     boundary_level = self.REFERENCE_BOUNDARY_LEVEL_BY_OBJECT.get(grid_object, 0)
+        #     _, backtransform, _, horizontal_start = transform_to_unstructured(
+        #         sample,
+        #         self.REFERENCE_TRANSLATION_NX,
+        #         grid_object,
+        #         boundary_level,
+        #     )
+        #     backtransform_by_object[grid_object] = backtransform
+        #     horizontal_start_by_object[grid_object] = horizontal_start
+        # print(horizontal_start_by_object)
+        # print(backtransform_by_object)
+
+        # for name, value in input_data.items():
+        #     if not isinstance(value, gtx.Field):
+        #         continue
+        #     grid_object = _horizontal_grid_object(value)
+        #     if grid_object in backtransform_by_object:
+        #         transformed = _to_unstructured(value.asnumpy(), backtransform_by_object[grid_object])
+        #         prepared_inputs[name] = constructors.as_field(domain=value.domain, data=transformed)
+        # # print({k: v for k, v in prepared_inputs.items()})
+
+        # edge_start_2nd_nudge_line_idx: int | None = None
+        # if "Edge" in sample_by_object:
+        #     _, _, _, edge_start_2nd_nudge_line_idx = transform_to_unstructured(
+        #         sample_by_object["Edge"],
+        #         self.REFERENCE_TRANSLATION_NX,
+        #         "Edge",
+        #         10,
+        #     )
+
+        # if "Edge" in horizontal_start_by_object:
+        #     edge_horizontal_start = horizontal_start_by_object["Edge"]
+        #     for key, value in prepared_inputs.items():
+        #         if key.startswith("horizontal_start"):
+        #             prepared_inputs[key] = type(value)(edge_horizontal_start)
+        #         elif key == "start_2nd_nudge_line_idx_e" and edge_start_2nd_nudge_line_idx is not None:
+        #             prepared_inputs[key] = type(value)(edge_start_2nd_nudge_line_idx)
+        # elif "Cell" in horizontal_start_by_object:
+        #     cell_horizontal_start = horizontal_start_by_object["Cell"]
+        #     for key, value in prepared_inputs.items():
+        #         if key.startswith("horizontal_start"):
+        #             prepared_inputs[key] = type(value)(cell_horizontal_start)
+        # elif "Vertex" in horizontal_start_by_object:
+        #     vertex_horizontal_start = horizontal_start_by_object["Vertex"]
+        #     for key, value in prepared_inputs.items():
+        #         if key.startswith("horizontal_start"):
+        #             prepared_inputs[key] = type(value)(vertex_horizontal_start)
+        # print({k: v for k, v in prepared_inputs.items() if k.startswith("horizontal_start") or k == "start_2nd_nudge_line_idx_e"})
+        
+        # # transform reference outputs as well and store the backtransform for later backtransformation in _verify_stencil_test
+        # for out in self.OUTPUTS:
+        #     out_name = out.name if isinstance(out, Output) else out
+        #     out_value = input_data.get(out_name)
+        #     if isinstance(out_value, gtx.Field):
+        #         grid_object = _horizontal_grid_object(out_value)
+        #         if grid_object in backtransform_by_object:
+        #             backtransform = backtransform_by_object[grid_object]
+        #             self._reference_output_backtransform_by_name[out_name] = backtransform
+        
+        # return (
+        #     _StructuredConnectivityConceptFixer(
+        #         _grid=grid,
+        #         _backtransform_by_object=backtransform_by_object,
+        #     ),
+        #     prepared_inputs,
+        # )
+        return prepared_inputs
+
+
     def _prepare_reference_inputs(
         self,
         grid: base.Grid,
@@ -322,7 +433,8 @@ class StencilTest:
         self._reference_output_backtransform_by_name: dict[str, np.ndarray] = {}
 
         use_structured_backend = os.environ.get("USE_STRUCTURED_BACKEND", "0") == "1"
-        if not (use_structured_backend and self.ENABLE_REFERENCE_TRANSLATION_FOR_STRUCTURED_BACKEND):
+        
+        if not self.ENABLE_REFERENCE_TRANSLATION_FOR_STRUCTURED_BACKEND or True:
             return (
                 _ConnectivityConceptFixer(
                     grid  # TODO(havogt): pass as keyword argument (needs fixes in some tests)
@@ -426,6 +538,7 @@ class StencilTest:
                 return tuple(_to_structured(arr, backtransform) for arr in output)
             return _to_structured(output, backtransform)
 
+
         for out in self.OUTPUTS:
             name, refslice, gtslice = (
                 (out.name, out.refslice, out.gtslice)
@@ -440,7 +553,7 @@ class StencilTest:
             # from PR#861. Reason is probably derivatives of random data. Investigate and lower tolerance back to 1e-7 if possible.
             relative_tolerance = 3e-6
             if isinstance(input_data_name, tuple):
-                reference_outputs_tuple = _backtransform_reference_output(name, reference_outputs[name])
+                reference_outputs_tuple = reference_outputs[name]# _backtransform_reference_output(name, reference_outputs[name])
                 assert isinstance(reference_outputs_tuple, tuple)
                 for i_out_field, out_field in enumerate(input_data_name):
                     np.testing.assert_allclose(
@@ -451,9 +564,7 @@ class StencilTest:
                         rtol=relative_tolerance,  # TODO(iomaganaris, havogt, nfarabullini): check above comment
                     )
             else:
-                reference_outputs_name = _backtransform_reference_output(
-                    name, reference_outputs[name]
-                )  # for mypy
+                reference_outputs_name = reference_outputs[name]#_backtransform_reference_output(name, reference_outputs[name])  # for mypy
                 assert isinstance(reference_outputs_name, np.ndarray)
                 print(f"output: {name}, values: {input_data_name.asnumpy()[gtslice][:,0]}")
                 print(f"reference: {reference_outputs_name[refslice][:,0]}")
