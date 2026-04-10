@@ -94,7 +94,7 @@ class TestComputeAvgVnAndGraddivVnAndVt(StencilTest):
             z_vn_avg=z_vn_avg,
             z_graddiv_vn=z_graddiv_vn,
             vt=vt,
-            horizontal_start=0,
+            horizontal_start=horizontal_start,
             horizontal_end=gtx.int32(grid.num_edges),
             vertical_start=0,
             vertical_end=gtx.int32(grid.num_levels),
