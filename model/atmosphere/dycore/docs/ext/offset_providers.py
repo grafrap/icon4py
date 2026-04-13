@@ -382,156 +382,195 @@ def generate_mesh_figure(nx, ny, label, static_dir):
 # ===============================================================================
 def generate_figures(static_dir: str = "."):
     # ---------------------------------------------------------------------------
-    fig, ax, T = generate_mesh_figure(2, 2, "c2e", static_dir)
+    # Build c2e as a 2x2 parallelogram, color one down cell blue with orange edges,
+    # draw arrows around it, and add placeholder axis arrows/labels for j and i.
+    fig, ax, triangles = generate_parallelogram_figure(2, 2, "c2e", static_dir)
 
-    Ta = T[1]
-    Ta.color_cell()
-    draw_arrow(ax, Ta.AB, Ta.CC, 1)
-    draw_arrow(ax, Ta.BC, Ta.CC, 1)
-    draw_arrow(ax, Ta.CA, Ta.CC, 1)
-    Ta.color_edges(1)
+    # pick the first down triangle to color (keeps behavior similar to previous T[1])
+    target = None
+    for key, tri in triangles:
+        if key[2] == "down":
+            target = tri
+            break
 
-    fig.save()
+    if target is not None:
+        # color cell blue (index 0) and edges orange (index 1)
+        target.color_cell(0)
+        target.color_edges(1)
+        # arrows pointing from edges to cell center (same as before)
+        draw_arrow(ax, target.AB, target.CC, 1)
+        draw_arrow(ax, target.BC, target.CC, 1)
+        draw_arrow(ax, target.CA, target.CC, 1)
+        # add edge labels (placeholders) at edge midpoints
+        # AB
+        ax.text(target.AB[0] + 0.2, target.AB[1], "⟪0,1,0⟫", fontsize=10, ha="center", va="center")
+        # BC
+        ax.text(target.BC[0], target.BC[1] + 0.08, "⟪1,0,-1⟫", fontsize=10, ha="center", va="center")
+        # CA
+        ax.text(target.CA[0] - 0.2, target.CA[1], "⟪0,0,1⟫", fontsize=10, ha="center", va="center")
 
-    # ---------------------------------------------------------------------------
-    fig, ax, T = generate_mesh_figure(2, 2, "c2e2c", static_dir)
+        # # label the cell center with placeholder
+        # ax.text(target.CC[0], target.CC[1], "(0,0,1)", fontsize=10, ha="center", va="center")
 
-    Ta = T[1]
-    Tb = T[0]
-    Tc = T[2]
-    Td = T[7]
-    Ta.color_cell()
-    draw_arrow(ax, Ta.AB, Ta.CC, 1)
-    draw_arrow(ax, Ta.BC, Ta.CC, 1)
-    draw_arrow(ax, Ta.CA, Ta.CC, 1)
-    Ta.color_edges(1)
-    draw_arrow(ax, Tb.CC, Tb.BC, 2)
-    draw_arrow(ax, Tc.CC, Tc.CA, 2)
-    draw_arrow(ax, Td.CC, Td.AB, 2)
-    Tb.color_cell(2)
-    Tc.color_cell(2)
-    Td.color_cell(2)
+    # dimension arrows and placeholder labels
+    height = SIDE * np.sqrt(3) / 2
+    v1 = (SIDE, 0)
+    v2 = (SIDE / 2, height)
+    x0, y0 = 0.0, 0.0
 
-    fig.save()
+    P0 = (x0, y0)
+    P1 = (x0 + 2 * v1[0], y0 + 2 * v1[1])
+    P3 = (x0 + 2 * v2[0], y0 + 2 * v2[1])
 
-    # ---------------------------------------------------------------------------
-    fig, ax, T = generate_mesh_figure(2, 2, "c2e2co", static_dir)
+    # label vertices with dimension placeholders (no arrows)
+    # bottom-left origin
+    ax.text(P0[0] - 0.03, P0[1] - 0.03, "(i, j) = (0,0)", fontsize=10, ha="right", va="top")
+    # far-right corner along j
+    ax.text(P1[0] + 0.03, P1[1] - 0.03, "(i, j) = (0,2)", fontsize=10, ha="left", va="top")
+    # top corner along i
+    ax.text(P3[0] - 0.03, P3[1], "(i, j) = (2,0)", fontsize=10, ha="right", va="bottom")
 
-    Ta = T[1]
-    Tb = T[0]
-    Tc = T[2]
-    Td = T[7]
-    Ta.color_cell()
-    draw_arrow(ax, Ta.AB, Ta.CC, 1)
-    draw_arrow(ax, Ta.BC, Ta.CC, 1)
-    draw_arrow(ax, Ta.CA, Ta.CC, 1)
-    Ta.color_edges(1)
-    draw_arrow(ax, Tb.CC, Tb.BC, 2)
-    draw_arrow(ax, Tc.CC, Tc.CA, 2)
-    draw_arrow(ax, Td.CC, Td.AB, 2)
-    Tb.color_cell(2)
-    Tc.color_cell(2)
-    Td.color_cell(2)
-    draw_arrow(ax, Ta.CC, Ta.AB, 2)
-    draw_arrow(ax, Ta.CC, Ta.BC, 2)
-    draw_arrow(ax, Ta.CC, Ta.CA, 2)
-    Ta.color_cell(2)
-
-    fig.save()
+    fig.savefig(os.path.join(static_dir, IMG_DIR, "offsetProvider_c2e.png"), dpi=300, bbox_inches="tight")
 
     # ---------------------------------------------------------------------------
-    # ---------------------------------------------------------------------------
-    fig, ax, T = generate_mesh_figure(2, 2, "e2v", static_dir)
+    # fig, ax, T = generate_mesh_figure(2, 2, "c2e2c", static_dir)
 
-    Ta = T[1]
-    Ta.color_edge("BC")
-    draw_arrow(ax, Ta.B, Ta.BC, 1)
-    draw_arrow(ax, Ta.C, Ta.BC, 1)
-    Ta.color_vertex("B", 1)
-    Ta.color_vertex("C", 1)
+    # Ta = T[1]
+    # Tb = T[0]
+    # Tc = T[2]
+    # Td = T[7]
+    # Ta.color_cell()
+    # draw_arrow(ax, Ta.AB, Ta.CC, 1)
+    # draw_arrow(ax, Ta.BC, Ta.CC, 1)
+    # draw_arrow(ax, Ta.CA, Ta.CC, 1)
+    # Ta.color_edges(1)
+    # draw_arrow(ax, Tb.CC, Tb.BC, 2)
+    # draw_arrow(ax, Tc.CC, Tc.CA, 2)
+    # draw_arrow(ax, Td.CC, Td.AB, 2)
+    # Tb.color_cell(2)
+    # Tc.color_cell(2)
+    # Td.color_cell(2)
 
-    fig.save()
+    # fig.save()
 
-    # ---------------------------------------------------------------------------
-    fig, ax, T = generate_mesh_figure(2, 2, "e2c", static_dir)
+    # # ---------------------------------------------------------------------------
+    # fig, ax, T = generate_mesh_figure(2, 2, "c2e2co", static_dir)
 
-    Ta = T[1]
-    Tb = T[7]
-    Ta.color_edge("BC")
-    draw_arrow(ax, Ta.CC, Ta.BC, 1)
-    draw_arrow(ax, Tb.CC, Tb.AB, 1)
-    Ta.color_cell(1)
-    Tb.color_cell(1)
+    # Ta = T[1]
+    # Tb = T[0]
+    # Tc = T[2]
+    # Td = T[7]
+    # Ta.color_cell()
+    # draw_arrow(ax, Ta.AB, Ta.CC, 1)
+    # draw_arrow(ax, Ta.BC, Ta.CC, 1)
+    # draw_arrow(ax, Ta.CA, Ta.CC, 1)
+    # Ta.color_edges(1)
+    # draw_arrow(ax, Tb.CC, Tb.BC, 2)
+    # draw_arrow(ax, Tc.CC, Tc.CA, 2)
+    # draw_arrow(ax, Td.CC, Td.AB, 2)
+    # Tb.color_cell(2)
+    # Tc.color_cell(2)
+    # Td.color_cell(2)
+    # draw_arrow(ax, Ta.CC, Ta.AB, 2)
+    # draw_arrow(ax, Ta.CC, Ta.BC, 2)
+    # draw_arrow(ax, Ta.CC, Ta.CA, 2)
+    # Ta.color_cell(2)
 
-    fig.save()
+    # fig.save()
 
-    # ---------------------------------------------------------------------------
-    fig, ax, T = generate_mesh_figure(2, 2, "e2c2e", static_dir)
+    # # ---------------------------------------------------------------------------
+    # # ---------------------------------------------------------------------------
+    # fig, ax, T = generate_mesh_figure(2, 2, "e2v", static_dir)
 
-    Ta = T[1]
-    Tb = T[7]
-    Ta.color_edge("BC")
-    draw_arrow(ax, Ta.CC, Ta.BC, 1)
-    draw_arrow(ax, Tb.CC, Tb.AB, 1)
-    Ta.color_cell(1)
-    Tb.color_cell(1)
-    draw_arrow(ax, Ta.AB, Ta.CC, 2)
-    draw_arrow(ax, Ta.BC, Ta.CC, 2)
-    draw_arrow(ax, Ta.CA, Ta.CC, 2)
-    draw_arrow(ax, Tb.AB, Tb.CC, 2)
-    draw_arrow(ax, Tb.BC, Tb.CC, 2)
-    draw_arrow(ax, Tb.CA, Tb.CC, 2)
-    Ta.color_edges(2)
-    Tb.color_edges(2)
+    # Ta = T[1]
+    # Ta.color_edge("BC")
+    # draw_arrow(ax, Ta.B, Ta.BC, 1)
+    # draw_arrow(ax, Ta.C, Ta.BC, 1)
+    # Ta.color_vertex("B", 1)
+    # Ta.color_vertex("C", 1)
 
-    fig.save()
+    # fig.save()
 
-    # ---------------------------------------------------------------------------
-    fig, ax, T = generate_mesh_figure(2, 2, "e2c2v", static_dir)
+    # # ---------------------------------------------------------------------------
+    # fig, ax, T = generate_mesh_figure(2, 2, "e2c", static_dir)
 
-    Ta = T[1]
-    Tb = T[7]
-    Ta.color_edge("BC")
-    draw_arrow(ax, Ta.CC, Ta.BC, 1)
-    draw_arrow(ax, Tb.CC, Tb.AB, 1)
-    Ta.color_cell(1)
-    Tb.color_cell(1)
-    draw_arrow(ax, Ta.A, Ta.CC, 2)
-    draw_arrow(ax, Ta.B, Ta.CC, 2)
-    draw_arrow(ax, Ta.C, Ta.CC, 2)
-    draw_arrow(ax, Tb.A, Tb.CC, 2)
-    draw_arrow(ax, Tb.B, Tb.CC, 2)
-    draw_arrow(ax, Tb.C, Tb.CC, 2)
-    Ta.color_vertices(2)
-    Tb.color_vertices(2)
+    # Ta = T[1]
+    # Tb = T[7]
+    # Ta.color_edge("BC")
+    # draw_arrow(ax, Ta.CC, Ta.BC, 1)
+    # draw_arrow(ax, Tb.CC, Tb.AB, 1)
+    # Ta.color_cell(1)
+    # Tb.color_cell(1)
 
-    fig.save()
+    # fig.save()
 
-    # ---------------------------------------------------------------------------
-    # ---------------------------------------------------------------------------
-    fig, ax, T = generate_mesh_figure(1, 2, "v2e", static_dir)
+    # # ---------------------------------------------------------------------------
+    # fig, ax, T = generate_mesh_figure(2, 2, "e2c2e", static_dir)
 
-    Ta = T[0]
-    Tb = T[2]
-    Tc = T[5]
-    Td = T[4]
-    Te = T[3]
-    Tf = T[1]
-    Ta.color_vertex("C")
-    draw_arrow(ax, Ta.CA, Ta.C, 1)
-    draw_arrow(ax, Tb.CA, Tb.C, 1)
-    draw_arrow(ax, Tc.AB, Tc.A, 1)
-    draw_arrow(ax, Td.AB, Td.A, 1)
-    draw_arrow(ax, Te.BC, Te.B, 1)
-    draw_arrow(ax, Tf.BC, Tf.B, 1)
-    Ta.color_edge("CA", 1)
-    Tb.color_edge("CA", 1)
-    Tc.color_edge("AB", 1)
-    Td.color_edge("AB", 1)
-    Te.color_edge("BC", 1)
-    Tf.color_edge("BC", 1)
+    # Ta = T[1]
+    # Tb = T[7]
+    # Ta.color_edge("BC")
+    # draw_arrow(ax, Ta.CC, Ta.BC, 1)
+    # draw_arrow(ax, Tb.CC, Tb.AB, 1)
+    # Ta.color_cell(1)
+    # Tb.color_cell(1)
+    # draw_arrow(ax, Ta.AB, Ta.CC, 2)
+    # draw_arrow(ax, Ta.BC, Ta.CC, 2)
+    # draw_arrow(ax, Ta.CA, Ta.CC, 2)
+    # draw_arrow(ax, Tb.AB, Tb.CC, 2)
+    # draw_arrow(ax, Tb.BC, Tb.CC, 2)
+    # draw_arrow(ax, Tb.CA, Tb.CC, 2)
+    # Ta.color_edges(2)
+    # Tb.color_edges(2)
 
-    fig.save()
+    # fig.save()
+
+    # # ---------------------------------------------------------------------------
+    # fig, ax, T = generate_mesh_figure(2, 2, "e2c2v", static_dir)
+
+    # Ta = T[1]
+    # Tb = T[7]
+    # Ta.color_edge("BC")
+    # draw_arrow(ax, Ta.CC, Ta.BC, 1)
+    # draw_arrow(ax, Tb.CC, Tb.AB, 1)
+    # Ta.color_cell(1)
+    # Tb.color_cell(1)
+    # draw_arrow(ax, Ta.A, Ta.CC, 2)
+    # draw_arrow(ax, Ta.B, Ta.CC, 2)
+    # draw_arrow(ax, Ta.C, Ta.CC, 2)
+    # draw_arrow(ax, Tb.A, Tb.CC, 2)
+    # draw_arrow(ax, Tb.B, Tb.CC, 2)
+    # draw_arrow(ax, Tb.C, Tb.CC, 2)
+    # Ta.color_vertices(2)
+    # Tb.color_vertices(2)
+
+    # fig.save()
+
+    # # ---------------------------------------------------------------------------
+    # # ---------------------------------------------------------------------------
+    # fig, ax, T = generate_mesh_figure(1, 2, "v2e", static_dir)
+
+    # Ta = T[0]
+    # Tb = T[2]
+    # Tc = T[5]
+    # Td = T[4]
+    # Te = T[3]
+    # Tf = T[1]
+    # Ta.color_vertex("C")
+    # draw_arrow(ax, Ta.CA, Ta.C, 1)
+    # draw_arrow(ax, Tb.CA, Tb.C, 1)
+    # draw_arrow(ax, Tc.AB, Tc.A, 1)
+    # draw_arrow(ax, Td.AB, Td.A, 1)
+    # draw_arrow(ax, Te.BC, Te.B, 1)
+    # draw_arrow(ax, Tf.BC, Tf.B, 1)
+    # Ta.color_edge("CA", 1)
+    # Tb.color_edge("CA", 1)
+    # Tc.color_edge("AB", 1)
+    # Td.color_edge("AB", 1)
+    # Te.color_edge("BC", 1)
+    # Tf.color_edge("BC", 1)
+
+    # fig.save()
 
 
 # ==============================================================================
@@ -1002,16 +1041,16 @@ def generate_page(static_dir: str):
 # ===============================================================================
 if __name__ == "__main__":
     # generate the existing offset provider figures
-    # generate_figures()
+    generate_figures()
 
     # generate unit cell image
-    generate_unit_cell_figure(static_dir=".")
+    # generate_unit_cell_figure(static_dir=".")
 
     # generate a 10x8 parallelogram and a recolored-boundary copy
-    generate_parallelogram_figure(10, 8, "10x8", static_dir=".")
-    generate_parallelogram_with_colored_boundary(10, 8, "10x8", static_dir=".", color="red")
+    # generate_parallelogram_figure(10, 8, "10x8", static_dir=".")
+    # generate_parallelogram_with_colored_boundary(10, 8, "10x8", static_dir=".", color="red")
 
     # generate a larger 20x15 with 5 colored loops
-    generate_parallelogram_colored_loops(20, 15, 5, "20x15", static_dir=".")
+    # generate_parallelogram_colored_loops(20, 15, 5, "20x15", static_dir=".")
 
     # plt.show()
