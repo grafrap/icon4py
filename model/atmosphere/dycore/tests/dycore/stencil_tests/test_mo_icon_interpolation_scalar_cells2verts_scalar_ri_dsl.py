@@ -15,7 +15,7 @@ from icon4py.model.atmosphere.dycore.stencils.mo_icon_interpolation_scalar_cells
     mo_icon_interpolation_scalar_cells2verts_scalar_ri_dsl,
 )
 from icon4py.model.common import dimension as dims
-from icon4py.model.common.grid import base
+from icon4py.model.common.grid import base, horizontal as h_grid
 from icon4py.model.common.states import utils as state_utils
 from icon4py.model.common.type_alias import vpfloat, wpfloat
 from icon4py.model.common.utils.data_allocation import random_field, zero_field
@@ -23,11 +23,12 @@ from icon4py.model.testing.stencil_tests import StencilTest
 
 
 def mo_icon_interpolation_scalar_cells2verts_scalar_ri_dsl_numpy(
-    connectivities: dict[gtx.Dimension, np.ndarray], p_cell_in: np.ndarray, c_intp: np.ndarray
+    connectivities: dict[gtx.Dimension, np.ndarray], p_cell_in: np.ndarray, c_intp: np.ndarray, horizontal_start: int = 0
 ) -> np.ndarray:
     v2c = connectivities[dims.V2CDim]
     c_intp = np.expand_dims(c_intp, axis=-1)
-    p_vert_out = np.sum(np.where((v2c != -1)[:, :, np.newaxis], p_cell_in[v2c] * c_intp, 0), axis=1)
+    p_vert_out = np.zeros((v2c.shape[0], p_cell_in.shape[1]), dtype=p_cell_in.dtype)
+    p_vert_out[horizontal_start: , :] = np.sum(np.where((v2c != -1)[:, :, np.newaxis], p_cell_in[v2c] * c_intp, 0), axis=1)[horizontal_start:, :]
     return p_vert_out
 
 
@@ -40,10 +41,11 @@ class TestMoIconInterpolationScalarCells2vertsScalarRiDsl(StencilTest):
         connectivities: dict[gtx.Dimension, np.ndarray],
         p_cell_in: np.ndarray,
         c_intp: np.ndarray,
+        horizontal_start: int,
         **kwargs: Any,
     ) -> dict:
         p_vert_out = mo_icon_interpolation_scalar_cells2verts_scalar_ri_dsl_numpy(
-            connectivities, p_cell_in, c_intp
+            connectivities, p_cell_in, c_intp, horizontal_start
         )
         return dict(
             p_vert_out=p_vert_out,
@@ -54,12 +56,14 @@ class TestMoIconInterpolationScalarCells2vertsScalarRiDsl(StencilTest):
         p_cell_in = random_field(grid, dims.CellDim, dims.KDim, dtype=wpfloat)
         c_intp = random_field(grid, dims.VertexDim, dims.V2CDim, dtype=wpfloat)
         p_vert_out = zero_field(grid, dims.VertexDim, dims.KDim, dtype=vpfloat)
+        vertex_domain = h_grid.domain(dims.EdgeDim)
+        horizontal_start = grid.start_index(vertex_domain(h_grid.Zone.LATERAL_BOUNDARY_LEVEL_2))
 
         return dict(
             p_cell_in=p_cell_in,
             c_intp=c_intp,
             p_vert_out=p_vert_out,
-            horizontal_start=0,
+            horizontal_start=horizontal_start,
             horizontal_end=gtx.int32(grid.num_vertices),
             vertical_start=0,
             vertical_end=gtx.int32(grid.num_levels),

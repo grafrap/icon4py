@@ -403,11 +403,11 @@ def generate_figures(static_dir: str = "."):
         draw_arrow(ax, target.CA, target.CC, 1)
         # add edge labels (placeholders) at edge midpoints
         # AB
-        ax.text(target.AB[0] + 0.2, target.AB[1], "⟪0,1,0⟫", fontsize=10, ha="center", va="center")
-        # BC
-        ax.text(target.BC[0], target.BC[1] + 0.08, "⟪1,0,-1⟫", fontsize=10, ha="center", va="center")
-        # CA
-        ax.text(target.CA[0] - 0.2, target.CA[1], "⟪0,0,1⟫", fontsize=10, ha="center", va="center")
+        # ax.text(target.AB[0] + 0.2, target.AB[1], "⟪0,1,0⟫", fontsize=10, ha="center", va="center")
+        # # BC
+        # ax.text(target.BC[0], target.BC[1] + 0.08, "⟪1,0,-1⟫", fontsize=10, ha="center", va="center")
+        # # CA
+        # ax.text(target.CA[0] - 0.2, target.CA[1], "⟪0,0,1⟫", fontsize=10, ha="center", va="center")
 
         # # label the cell center with placeholder
         # ax.text(target.CC[0], target.CC[1], "(0,0,1)", fontsize=10, ha="center", va="center")
@@ -638,7 +638,7 @@ def draw_parallelogram_grid(ax, nx, ny, x0=0.0, y0=0.0):
 
 
 # ==============================================================================
-def generate_parallelogram_figure(nx: int, ny: int, label: str, static_dir: str = "."):
+def generate_parallelogram_figure(nx: int, ny: int, label: str = None, static_dir: str = "."):
     """
     Generates and saves a figure showing a parallelogram grid.
     """
@@ -646,7 +646,7 @@ def generate_parallelogram_figure(nx: int, ny: int, label: str, static_dir: str 
     plt.clf()
     ax = fig.add_subplot(111)
     triangles, xlims, ylims = draw_parallelogram_grid(ax, nx, ny, x0=0.0, y0=0.0)
-    ax.set_title(f"Parallelogram grid: {label}")
+    ax.set_title(f"Parallelogram grid: {label}" if label else None)
     ax.set_xlim(xlims)
     ax.set_ylim(ylims)
     ax.set_aspect("equal")
@@ -715,7 +715,7 @@ def generate_unit_cell_figure(static_dir: str = "."):
 
 
 # ==============================================================================
-def generate_parallelogram_with_colored_boundary(nx: int, ny: int, label: str, static_dir: str = ".", color="red"):
+def generate_parallelogram_with_colored_boundary(nx: int, ny: int, label: str = None, static_dir: str = ".", color="red"):
     """
     Generate a parallelogram grid image and recolor the outer boundary edges
     (the edges added after tiling unit cells) with `color`.
@@ -1047,8 +1047,8 @@ if __name__ == "__main__":
     # generate_unit_cell_figure(static_dir=".")
 
     # generate a 10x8 parallelogram and a recolored-boundary copy
-    # generate_parallelogram_figure(10, 8, "10x8", static_dir=".")
-    # generate_parallelogram_with_colored_boundary(10, 8, "10x8", static_dir=".", color="red")
+    # generate_parallelogram_figure(10, 8, static_dir=".")
+    # generate_parallelogram_with_colored_boundary(10, 8, static_dir=".", color="red")
 
     # generate a larger 20x15 with 5 colored loops
     # generate_parallelogram_colored_loops(20, 15, 5, "20x15", static_dir=".")
