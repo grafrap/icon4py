@@ -133,3 +133,19 @@ venv.bak/
 
 ### Others ###
 .obsidian
+img/offsetProvider_e2c2e.png
+img/offsetProvider_c2e2co.png
+test_out_unstr.txt
+test_out_interp_cellC.txt
+test_out_interp_cellC_unstr.txt
+test_out_horiz_mom.txt
+test_out_horiz_mom_unstr.txt
+out.txt
+out_gtfn.txt
+compare_out.txt
+img/offsetProvider_c2e2c.png
+img/offsetProvider_e2c2v.png
+img/offsetProvider_v2e.png
+img/offsetProvider_e2v.png
+img/offsetProvider_parallelogram_c2e.png
+img/offsetProvider_e2c.png

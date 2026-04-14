@@ -1251,7 +1251,7 @@ def compute_lsq_coeffs(
                 if cell_owner_mask[jc]:
                     z_lsq_mat_c[jc, :min_lsq_bound, :min_lsq_bound] = 1.0
 
-        case base_grid.GeometryType.TORUS:
+        case base_grid.GeometryType.TORUS | base_grid.GeometryType.CARTESIAN:
             for jc in range(start_idx, min_rlcell_int):
                 ilc_s = c2e2c[jc, :lsq_dim_stencil]
                 cc_cell = array_ns.zeros((lsq_dim_stencil, 2))

@@ -126,7 +126,7 @@ class GridGeometry(factory.FieldSource):
             attrs.VERTEX_LON: coordinates[dims.VertexDim]["lon"],
             attrs.VERTEX_LAT: coordinates[dims.VertexDim]["lat"],
         }
-        if self._geometry_type == base.GeometryType.TORUS or self._geometry_type == base.GeometryType.CARTESIAN:
+        if self._geometry_type in (base.GeometryType.TORUS, base.GeometryType.CARTESIAN):
             coordinates_[attrs.CELL_CENTER_X] = coordinates[dims.CellDim]["x"]
             coordinates_[attrs.CELL_CENTER_Y] = coordinates[dims.CellDim]["y"]
             coordinates_[attrs.CELL_CENTER_Z] = coordinates[dims.CellDim]["z"]
@@ -252,7 +252,7 @@ class GridGeometry(factory.FieldSource):
 
                 self._register_normals_and_tangents_icosahedron()
 
-            case base.GeometryType.TORUS:
+            case base.GeometryType.TORUS | base.GeometryType.CARTESIAN:
                 vertex_vertex_distance = factory.ProgramFieldProvider(
                     func=stencils.compute_distance_of_far_edges_in_diamond_torus,
                     domain={

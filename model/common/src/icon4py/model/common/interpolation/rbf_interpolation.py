@@ -70,7 +70,7 @@ def compute_default_rbf_scale_cell(
                 0.5 / (1.0 + c1 * math.log(threshold / resol) ** c2) if resol < threshold else 0.5
             )
             return astype(scale * (resol / 0.125) ** c3 if resol <= 0.125 else scale, ta.wpfloat)
-        case base_grid.GeometryType.TORUS:
+        case base_grid.GeometryType.TORUS | base_grid.GeometryType.CARTESIAN:
             return mean_dual_edge_length
 
 
@@ -94,7 +94,7 @@ def compute_default_rbf_scale_edge(
                 0.5 / (1.0 + c1 * math.log(threshold / resol) ** c2) if resol < threshold else 0.5
             )
             return astype(scale * (resol / 0.125) ** c3 if resol <= 0.125 else scale, ta.wpfloat)
-        case base_grid.GeometryType.TORUS:
+        case base_grid.GeometryType.TORUS | base_grid.GeometryType.CARTESIAN:
             return mean_dual_edge_length
 
 
@@ -118,7 +118,7 @@ def compute_default_rbf_scale_vertex(
                 0.5 / (1.0 + c1 * math.log(threshold / resol) ** c2) if resol < threshold else 0.5
             )
             return astype(scale * (resol / 0.125) ** c3 if resol <= 0.125 else scale, ta.wpfloat)
-        case base_grid.GeometryType.TORUS:
+        case base_grid.GeometryType.TORUS | base_grid.GeometryType.CARTESIAN:
             return mean_dual_edge_length
 
 
@@ -191,7 +191,7 @@ def _compute_distance_pairwise(
             # inaccuracies)
             array_ns.clip(arc_lengths, -1.0, 1.0, out=arc_lengths)
             return array_ns.arccos(arc_lengths)
-        case base_grid.GeometryType.TORUS:
+        case base_grid.GeometryType.TORUS | base_grid.GeometryType.CARTESIAN:
             # For pairs of points p1 and p2 compute:
             # norm(p1 - p2), taking into account the periodic boundaries noqa: ERA001
             diff = array_ns.abs(v[:, :, array_ns.newaxis, :] - v[:, array_ns.newaxis, :, :])
@@ -239,7 +239,7 @@ def _compute_distance_vector_matrix(
             # inaccuracies)
             array_ns.clip(arc_lengths, -1.0, 1.0, out=arc_lengths)
             return array_ns.squeeze(array_ns.arccos(arc_lengths), axis=1)
-        case base_grid.GeometryType.TORUS:
+        case base_grid.GeometryType.TORUS | base_grid.GeometryType.CARTESIAN:
             # For pairs of points p1 and p2 compute:
             # norm(p1 - p2) noqa: ERA001
             diff = np.abs(v1 - v2)
@@ -301,7 +301,7 @@ def _cartesian_coordinates_from_zonal_and_meridional_components(
             z = cos_lat * v
 
             return x, y, z
-        case base_grid.GeometryType.TORUS:
+        case base_grid.GeometryType.TORUS | base_grid.GeometryType.CARTESIAN:
             return u, v, array_ns.zeros_like(u)
 
 

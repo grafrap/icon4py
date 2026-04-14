@@ -361,7 +361,7 @@ class InterpolationFieldsFactory(factory.FieldSource, factory.GridProvider):
                 )
                 self.register_provider(pos_on_tplane_e_x_y)
 
-            case base.GeometryType.TORUS:
+            case base.GeometryType.TORUS | base.GeometryType.CARTESIAN:
                 cell_average_weight = factory.NumpyDataProvider(
                     func=functools.partial(
                         interpolation_fields.compute_mass_conserving_bilinear_cell_average_weight_torus,
