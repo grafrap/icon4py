@@ -720,6 +720,7 @@ def generate_parallelogram_with_colored_boundary(nx: int, ny: int, label: str = 
     Generate a parallelogram grid image and recolor the outer boundary edges
     (the edges added after tiling unit cells) with `color`.
     """
+    print(f"Generating parallelogram grid with colored boundary: {label}")
     fig, ax, triangles = generate_parallelogram_figure(nx, ny, label, static_dir)
 
     # build vertex dictionary: (i,j) -> (x,y), with i=0..nx, j=0..ny
@@ -792,6 +793,35 @@ def generate_parallelogram_with_colored_boundary(nx: int, ny: int, label: str = 
             else:
                 tri.color_vertex("C", blue_idx)
 
+    # Color the edges along j = 5 with green if they are northeast and orange if they are southeast
+    orange_count = 0
+    green_count = 0
+    for i in range(nx):
+        A = verts[(i, 5)]
+        B = verts[(i + 1, 5)]
+        C = verts[(i, 6)]
+        tri, edge = find_triangle_edge(A, B)
+        tri2, edge2 = find_triangle_edge(A, C)
+        if tri is not None:
+            tri.color_edge(edge, 1, linewidth=2)  # orange
+            orange_count += 1
+        if tri2 is not None:
+            tri2.color_edge(edge2, 2, linewidth=2)  # green
+            green_count += 1
+    A = verts[(nx, 5)]
+    C = verts[(nx, 6)]
+    tri, edge = find_triangle_edge(A, C)
+    if tri is not None:
+        tri.color_edge(edge, 2, linewidth=2)  # green
+        green_count += 1
+
+    # print color counts under the plot
+    xlims = ax.get_xlim()
+    ylims = ax.get_ylim()
+    midx = 0.5 * (xlims[0] + xlims[1])
+    # place the text slightly below the bottom axis limit
+    ypos = ylims[0] - 0.06 * SIDE
+    ax.text(midx, ypos, f"orange: {orange_count}    green: {green_count}", fontsize=10, ha="center", va="top")
     figure_dir = os.path.join(static_dir, IMG_DIR)
     fname = os.path.join(figure_dir, f"offsetProvider_parallelogram_{label}_boundary_{color}.png")
     fig.savefig(fname, dpi=300, bbox_inches="tight")
