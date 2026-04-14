@@ -566,8 +566,11 @@ class StencilTest:
             else:
                 reference_outputs_name = reference_outputs[name]#_backtransform_reference_output(name, reference_outputs[name])  # for mypy
                 assert isinstance(reference_outputs_name, np.ndarray)
-                print(f"output: {name}, values: {input_data_name.asnumpy()[gtslice][:,0]}")
-                print(f"reference: {reference_outputs_name[refslice][:,0]}")
+                # write output and reference into other output files
+                open(f"stencil_output.txt", "w").write(str(input_data_name.asnumpy()[gtslice][:,0]) + "\n" + str(reference_outputs_name[refslice][:,0]))
+                # open(f"stencil_reference.txt", "w").write(str(reference_outputs_name[refslice][:,0]))
+                print(f"output:\n{input_data_name.asnumpy()[gtslice][:,0]}")
+                print(f"reference:\n{reference_outputs_name[refslice][:,0]}")
                 print(f"slices - gt4py: {gtslice}, reference: {refslice}")
                 print(f"input_data_name shape: {input_data_name.asnumpy().shape}, reference_outputs_name shape: {reference_outputs_name.shape}")
                 np.testing.assert_allclose(

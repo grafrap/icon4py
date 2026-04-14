@@ -1041,14 +1041,14 @@ def generate_page(static_dir: str):
 # ===============================================================================
 if __name__ == "__main__":
     # generate the existing offset provider figures
-    generate_figures()
+    # generate_figures()
 
     # generate unit cell image
     # generate_unit_cell_figure(static_dir=".")
 
     # generate a 10x8 parallelogram and a recolored-boundary copy
     # generate_parallelogram_figure(10, 8, static_dir=".")
-    # generate_parallelogram_with_colored_boundary(10, 8, static_dir=".", color="red")
+    generate_parallelogram_with_colored_boundary(10, 8, static_dir=".", color="red")
 
     # generate a larger 20x15 with 5 colored loops
     # generate_parallelogram_colored_loops(20, 15, 5, "20x15", static_dir=".")

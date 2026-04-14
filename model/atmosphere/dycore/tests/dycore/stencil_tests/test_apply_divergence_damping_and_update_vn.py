@@ -261,7 +261,7 @@ class TestApplyDivergenceDampingAndUpdateVn(test_helpers.StencilTest):
         end_edge_local = grid.end_index(edge_domain(h_grid.Zone.LOCAL))
 
         monkeypatch = request.getfixturevalue("monkeypatch")
-        lateral_margin = 8 # edge field, 4 lateral layers + 1 nudging layer
+        lateral_margin = 9 # edge field, 4 lateral layers + 1 nudging layer
 
         monkeypatch.setenv("GT4PY_TRANSLATOR_LATERAL", str(lateral_margin))
         monkeypatch.setenv("GT4PY_TRANSLATOR_EDGE_LATERAL", str(1))
@@ -271,34 +271,7 @@ class TestApplyDivergenceDampingAndUpdateVn(test_helpers.StencilTest):
         print(f"edge lateral boundary is set to " ,os.environ.get("GT4PY_TRANSLATOR_EDGE_LATERAL", "7"))
         print(f"Using horizontal_start: {start_edge_nudging_level_2}, horizontal_end: {end_edge_local} for structured grid.")
 
-        # # Detect if we are on a structured grid by checking the rank of the allocated field
-        # print(f"Current vn shape: {current_vn.shape}")
-        # if is_structured:
-        #     nx = int((start_edge_nudging_level_2 - lateral_margin + 1)/lateral_margin)
-        #     ny = int((end_edge_local - nx) / (3*nx + 1))
-            
-        #     start_i, start_j = lateral_margin, lateral_margin
-        #     end_i, end_j = ny + 1 - lateral_margin, nx + 1 - lateral_margin
 
-        #     # Build a 1D boolean mask of False values
-        #     total_edges = current_vn.shape[0]
-        #     compute_mask = np.zeros(total_edges, dtype=bool)
-            
-        #     # Reconstruct the 1D indices of the INTERIOR edges based on your mapping layout.
-        #     # (You will need to adjust the line below to match EXACTLY how your 
-        #     # parallelogram_grid.nc maps (i, j, edge_type) to the 1D index E)
-        #     for i in range(start_i, end_i):
-        #         for j in range(start_j, end_j):
-        #             # Assuming you have 3 edges per cell (horizontal, vertical, diagonal)
-        #             for e_type in range(3):
-                        
-        #                 # Replace this pseudo-code with your actual 1D index mapping formula
-        #                 idx = (i * ny * 3) + (j * 3) + e_type 
-                        
-        #                 if idx < total_edges:
-        #                     compute_mask[idx] = True
-        # print(f"Using horizontal_start: {start_edge_nudging_level_2}, horizontal_end: {end_edge_local} for structured grid.")
-        # print(f"next_vn before the test stencil: {next_vn.asnumpy()[:,0]}")
         return dict(
             horizontal_gradient_of_normal_wind_divergence=horizontal_gradient_of_normal_wind_divergence,
             next_vn=next_vn,
