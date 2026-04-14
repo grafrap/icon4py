@@ -33,6 +33,7 @@ class GeometryType(enum.Enum):
 
     ICOSAHEDRON = 1
     TORUS = 2
+    CARTESIAN = 4
 
 
 @dataclasses.dataclass(frozen=True)

@@ -162,12 +162,12 @@ class Icon4pyDriver:
         tracer_prep_adv: advection_states.AdvectionPrepAdvState,
     ) -> None:
         log.debug(f"Running {self.solve_nonhydro.__class__}")
-        self._do_dyn_substepping(
-            solve_nonhydro_diagnostic_state,
-            prognostic_states,
-            prep_adv,
-            do_prep_adv,
-        )
+        # self._do_dyn_substepping(
+        #     solve_nonhydro_diagnostic_state,
+        #     prognostic_states,
+        #     prep_adv,
+        #     do_prep_adv,
+        # )
 
         if self.diffusion.config.apply_to_horizontal_wind:
             log.debug(f"Running {self.diffusion.__class__}")
