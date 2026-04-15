@@ -41,6 +41,8 @@ def allocate_data(
     ],  # `Field`s or collection of `Field`s are re-allocated, the rest is passed through
 ) -> dict[str, Any]:
     def _allocate_field(f: gtx.Field) -> gtx.Field:
+        if not hasattr(f, "domain"):
+            return f
         return constructors.as_field(domain=f.domain, data=f.ndarray, allocator=allocator)
 
     input_data = {
@@ -75,6 +77,68 @@ class _ConnectivityConceptFixer:
         return self._grid.get_connectivity(dim).asnumpy()
 
 
+_CHAR_TO_GRID_OBJECT = {"E": "Edge", "C": "Cell", "V": "Vertex"}
+
+
+def _to_unstructured(field: np.ndarray, backtransform: np.ndarray) -> np.ndarray:
+    out = np.zeros_like(field)
+    out[backtransform] = field
+    return out
+
+
+def _to_structured(field, backtransform):
+    if hasattr(field, "asnumpy"):
+        arr = field.asnumpy()
+        transformed = arr[backtransform]
+        return constructors.as_field(domain=field.domain, data=transformed)
+    else:
+        return field[backtransform]
+
+
+def _infer_connectivity_objects(dim_name: str) -> tuple[str | None, str | None]:
+    letters = [c for c in dim_name if c in _CHAR_TO_GRID_OBJECT]
+    if len(letters) < 2:
+        return None, None
+    return _CHAR_TO_GRID_OBJECT[letters[0]], _CHAR_TO_GRID_OBJECT[letters[-1]]
+
+
+def _horizontal_grid_object(field: gtx.Field) -> str | None:
+    if not hasattr(field, "domain"):
+        return None
+    for dim in field.domain.dims:
+        if dim.kind == gtx.DimensionKind.HORIZONTAL and dim.value in ("Edge", "Cell", "Vertex"):
+            return dim.value
+    return None
+
+
+@dataclasses.dataclass
+class _StructuredConnectivityConceptFixer:
+    _grid: base.Grid
+    _backtransform_by_object: dict[str, np.ndarray]
+    _cache: dict[str, np.ndarray] = dataclasses.field(default_factory=dict)
+
+    def __getitem__(self, dim: gtx.Dimension | str) -> np.ndarray:
+        dim_name = dim.value if isinstance(dim, gtx.Dimension) else dim
+        if dim_name in self._cache:
+            return self._cache[dim_name]
+
+        connectivity = np.array(self._grid.get_connectivity(dim_name).asnumpy(), copy=True)
+        center_object, neighbor_object = _infer_connectivity_objects(dim_name)
+
+        if center_object in self._backtransform_by_object:
+            center_backtransform = self._backtransform_by_object[center_object]
+            if connectivity.shape[0] == center_backtransform.shape[0]:
+                connectivity = _to_unstructured(connectivity, center_backtransform)
+
+        if neighbor_object in self._backtransform_by_object:
+            neighbor_backtransform = self._backtransform_by_object[neighbor_object]
+            valid = connectivity >= 0
+            connectivity[valid] = neighbor_backtransform[connectivity[valid]]
+
+        self._cache[dim_name] = connectivity
+        return connectivity
+
+
 class StandardStaticVariants(eve.StrEnum):
     NONE = "none"
     COMPILE_TIME_DOMAIN = "compile_time_domain"
@@ -89,25 +153,28 @@ def test_and_benchmark(
     _configured_program: Callable[..., None],
     request: pytest.FixtureRequest,
 ) -> None:
+    print(f"\n=== RUNNING TEST FOR PROGRAM: {self.PROGRAM} ===")
+    prepared_input_data = self._prepare_program_inputs(
+        grid=grid,
+        input_data=_properly_allocated_input_data,
+    )
+
     skip_stenciltest_verification = request.config.getoption(
         "skip_stenciltest_verification"
     )  # skip verification if `--skip-stenciltest-verification` CLI option is set
     skip_stenciltest_benchmark = benchmark is None or not benchmark.enabled
 
     if not skip_stenciltest_verification:
-        reference_outputs = self.reference(
-            _ConnectivityConceptFixer(
-                grid  # TODO(havogt): pass as keyword argument (needs fixes in some tests)
-            ),
-            **{
-                k: v.asnumpy() if isinstance(v, gtx.Field) else v
-                for k, v in _properly_allocated_input_data.items()
-            },
+        reference_connectivities, reference_inputs = self._prepare_reference_inputs(
+            grid=grid,
+            input_data=prepared_input_data,
         )
+        reference_outputs = self.reference(reference_connectivities, **reference_inputs)
+        print(f"Reference outputs computed: {list(reference_outputs.keys())}")
 
-        _configured_program(**_properly_allocated_input_data, offset_provider=grid.connectivities)
+        _configured_program(**prepared_input_data, offset_provider=grid.connectivities)
         self._verify_stencil_test(
-            input_data=_properly_allocated_input_data, reference_outputs=reference_outputs
+            input_data=prepared_input_data, reference_outputs=reference_outputs
         )
 
     if not skip_stenciltest_benchmark:
@@ -118,7 +185,7 @@ def test_and_benchmark(
         benchmark.pedantic(
             _configured_program,
             args=(),
-            kwargs=dict(**_properly_allocated_input_data, offset_provider=grid.connectivities),
+            kwargs=dict(**prepared_input_data, offset_provider=grid.connectivities),
             rounds=int(
                 os.getenv("ICON4PY_STENCIL_TEST_BENCHMARK_ROUNDS", "3")
             ),  # 30 iterations in total should be stable enough
@@ -201,6 +268,13 @@ class StencilTest:
     PROGRAM: ClassVar[gtx_typing.Program | gtx_typing.FieldOperator]
     OUTPUTS: ClassVar[tuple[str | Output, ...]]
     STATIC_PARAMS: ClassVar[dict[str, Sequence[str]] | None] = None
+    ENABLE_REFERENCE_TRANSLATION_FOR_STRUCTURED_BACKEND: ClassVar[bool] = False
+    REFERENCE_TRANSLATION_NX: ClassVar[int] = 13
+    REFERENCE_BOUNDARY_LEVEL_BY_OBJECT: ClassVar[dict[str, int]] = {
+        "Edge": 3,
+        "Cell": 2,
+        "Vertex": 2,
+    }
 
     reference: ClassVar[Callable[..., Mapping[str, np.ndarray | tuple[np.ndarray, ...]]]]
 
@@ -212,6 +286,38 @@ class StencilTest:
         input_data: dict[str, gtx.Field | tuple[gtx.Field, ...]],
         grid: base.Grid,
     ) -> Callable[..., None]:
+        use_structured_backend = os.environ.get("USE_STRUCTURED_BACKEND", "0") == "1"
+        if use_structured_backend:
+            if getattr(grid, "id", None) == "simple_grid":
+                raise RuntimeError(
+                    "Structured backend is disabled for 'simple_grid'. "
+                    "Use a structured-compatible grid (e.g. pass '--grid <ICON_GRID_FILE>:<levels>') "
+                    "or disable USE_STRUCTURED_BACKEND."
+                )
+            try:
+                from gt4py.next.modules.cartesian_interceptor import (
+                    GenericStructuredWrapper,
+                    get_global_grid_mapping,
+                )
+                from gt4py.next.program_processors.runners import gtfn as gtfn_runner
+
+                e2v_conn = grid.connectivities.get("E2V")
+                e2v_array = e2v_conn.asnumpy() if e2v_conn is not None else None
+                index_map, remap_sizes = get_global_grid_mapping(e2v_override=e2v_array)
+                wrapper = GenericStructuredWrapper(
+                    operator=self.PROGRAM,
+                    backend_factory=gtfn_runner.GTFNBackendFactory,
+                    index_map=index_map,
+                    remap_sizes=remap_sizes,
+                    allocator=model_backends.get_allocator(backend_like),
+                    offset_provider=grid.connectivities,
+                )
+                return device_utils.synchronized_function(
+                    wrapper, allocator=model_backends.get_allocator(backend_like)
+                )
+            except Exception as exc:
+                raise RuntimeError("Failed to initialize structured stencil wrapper") from exc
+
         unused_static_params = set(static_variant) - set(input_data.keys())
         if unused_static_params:
             raise ValueError(
@@ -247,11 +353,223 @@ class StencilTest:
         allocator = model_backends.get_allocator(backend_like)
         return allocate_data(allocator=allocator, input_data=input_data)
 
+    def _prepare_program_inputs(
+        self,
+        grid: base.Grid,
+        input_data: dict[str, gtx.Field | tuple[gtx.Field, ...]],
+    ) -> dict[str, Any]:
+        use_structured_backend = os.environ.get("USE_STRUCTURED_BACKEND", "0") == "1"
+        print(f"USE_STRUCTURED_BACKEND: {use_structured_backend}")
+        if not use_structured_backend:
+            return dict(input_data)
+
+        if not self.ENABLE_REFERENCE_TRANSLATION_FOR_STRUCTURED_BACKEND:
+            return dict(input_data)
+
+        from gt4py.next.modules.translator import transform_to_unstructured
+
+        prepared_inputs: dict[str, Any] = dict(input_data)
+
+        # sample_by_object: dict[str, np.ndarray] = {}
+        # for name, value in input_data.items():
+        #     if not isinstance(value, gtx.Field):
+        #         continue
+        #     grid_object = _horizontal_grid_object(value)
+        #     if grid_object is None or grid_object in sample_by_object:
+        #         continue
+        #     arr = value.asnumpy()
+        #     sample_by_object[grid_object] = arr if arr.ndim == 1 else arr[:, 0]
+
+        # backtransform_by_object: dict[str, np.ndarray] = {}
+        # horizontal_start_by_object: dict[str, int] = {}
+        # for grid_object, sample in sample_by_object.items():
+        #     boundary_level = self.REFERENCE_BOUNDARY_LEVEL_BY_OBJECT.get(grid_object, 0)
+        #     _, backtransform, _, horizontal_start = transform_to_unstructured(
+        #         sample,
+        #         self.REFERENCE_TRANSLATION_NX,
+        #         grid_object,
+        #         boundary_level,
+        #     )
+        #     backtransform_by_object[grid_object] = backtransform
+        #     horizontal_start_by_object[grid_object] = horizontal_start
+        # print(horizontal_start_by_object)
+        # print(backtransform_by_object)
+
+        # for name, value in input_data.items():
+        #     if not isinstance(value, gtx.Field):
+        #         continue
+        #     grid_object = _horizontal_grid_object(value)
+        #     if grid_object in backtransform_by_object:
+        #         transformed = _to_unstructured(value.asnumpy(), backtransform_by_object[grid_object])
+        #         prepared_inputs[name] = constructors.as_field(domain=value.domain, data=transformed)
+        # # print({k: v for k, v in prepared_inputs.items()})
+
+        # edge_start_2nd_nudge_line_idx: int | None = None
+        # if "Edge" in sample_by_object:
+        #     _, _, _, edge_start_2nd_nudge_line_idx = transform_to_unstructured(
+        #         sample_by_object["Edge"],
+        #         self.REFERENCE_TRANSLATION_NX,
+        #         "Edge",
+        #         10,
+        #     )
+
+        # if "Edge" in horizontal_start_by_object:
+        #     edge_horizontal_start = horizontal_start_by_object["Edge"]
+        #     for key, value in prepared_inputs.items():
+        #         if key.startswith("horizontal_start"):
+        #             prepared_inputs[key] = type(value)(edge_horizontal_start)
+        #         elif key == "start_2nd_nudge_line_idx_e" and edge_start_2nd_nudge_line_idx is not None:
+        #             prepared_inputs[key] = type(value)(edge_start_2nd_nudge_line_idx)
+        # elif "Cell" in horizontal_start_by_object:
+        #     cell_horizontal_start = horizontal_start_by_object["Cell"]
+        #     for key, value in prepared_inputs.items():
+        #         if key.startswith("horizontal_start"):
+        #             prepared_inputs[key] = type(value)(cell_horizontal_start)
+        # elif "Vertex" in horizontal_start_by_object:
+        #     vertex_horizontal_start = horizontal_start_by_object["Vertex"]
+        #     for key, value in prepared_inputs.items():
+        #         if key.startswith("horizontal_start"):
+        #             prepared_inputs[key] = type(value)(vertex_horizontal_start)
+        # print({k: v for k, v in prepared_inputs.items() if k.startswith("horizontal_start") or k == "start_2nd_nudge_line_idx_e"})
+        
+        # # transform reference outputs as well and store the backtransform for later backtransformation in _verify_stencil_test
+        # for out in self.OUTPUTS:
+        #     out_name = out.name if isinstance(out, Output) else out
+        #     out_value = input_data.get(out_name)
+        #     if isinstance(out_value, gtx.Field):
+        #         grid_object = _horizontal_grid_object(out_value)
+        #         if grid_object in backtransform_by_object:
+        #             backtransform = backtransform_by_object[grid_object]
+        #             self._reference_output_backtransform_by_name[out_name] = backtransform
+        
+        # return (
+        #     _StructuredConnectivityConceptFixer(
+        #         _grid=grid,
+        #         _backtransform_by_object=backtransform_by_object,
+        #     ),
+        #     prepared_inputs,
+        # )
+        return prepared_inputs
+
+
+    def _prepare_reference_inputs(
+        self,
+        grid: base.Grid,
+        input_data: dict[str, gtx.Field | tuple[gtx.Field, ...]],
+    ) -> tuple[_ConnectivityConceptFixer, dict[str, Any]]:
+        reference_inputs = {
+            k: v.asnumpy() if isinstance(v, gtx.Field) else v
+            for k, v in input_data.items()
+        }
+        self._reference_output_backtransform_by_name: dict[str, np.ndarray] = {}
+
+        use_structured_backend = os.environ.get("USE_STRUCTURED_BACKEND", "0") == "1"
+        
+        if not self.ENABLE_REFERENCE_TRANSLATION_FOR_STRUCTURED_BACKEND or True:
+            return (
+                _ConnectivityConceptFixer(
+                    grid  # TODO(havogt): pass as keyword argument (needs fixes in some tests)
+                ),
+                reference_inputs,
+            )
+
+        from gt4py.next.modules.translator import transform_to_unstructured
+
+        sample_by_object: dict[str, np.ndarray] = {}
+        for name, value in input_data.items():
+            if not isinstance(value, gtx.Field):
+                continue
+            grid_object = _horizontal_grid_object(value)
+            if grid_object is None or grid_object in sample_by_object:
+                continue
+            arr = reference_inputs[name]
+            sample_by_object[grid_object] = arr if arr.ndim == 1 else arr[:, 0]
+
+        backtransform_by_object: dict[str, np.ndarray] = {}
+        horizontal_start_by_object: dict[str, int] = {}
+        for grid_object, sample in sample_by_object.items():
+            boundary_level = self.REFERENCE_BOUNDARY_LEVEL_BY_OBJECT.get(grid_object, 0)
+            _, backtransform, _, horizontal_start = transform_to_unstructured(
+                sample,
+                self.REFERENCE_TRANSLATION_NX,
+                grid_object,
+                boundary_level,
+            )
+            backtransform_by_object[grid_object] = backtransform
+            horizontal_start_by_object[grid_object] = horizontal_start
+
+        for name, value in input_data.items():
+            if not isinstance(value, gtx.Field):
+                continue
+            grid_object = _horizontal_grid_object(value)
+            if grid_object in backtransform_by_object:
+                reference_inputs[name] = _to_unstructured(
+                    reference_inputs[name],
+                    backtransform_by_object[grid_object],
+                )
+
+        edge_start_2nd_nudge_line_idx: int | None = None
+        if "Edge" in sample_by_object:
+            _, _, _, edge_start_2nd_nudge_line_idx = transform_to_unstructured(
+                sample_by_object["Edge"],
+                self.REFERENCE_TRANSLATION_NX,
+                "Edge",
+                10,
+            )
+
+        if "Edge" in horizontal_start_by_object:
+            edge_horizontal_start = horizontal_start_by_object["Edge"]
+            for key, value in reference_inputs.items():
+                if key.startswith("horizontal_start"):
+                    reference_inputs[key] = type(value)(edge_horizontal_start)
+                elif key == "start_2nd_nudge_line_idx_e" and edge_start_2nd_nudge_line_idx is not None:
+                    reference_inputs[key] = type(value)(edge_start_2nd_nudge_line_idx)
+        elif "Cell" in horizontal_start_by_object:
+            cell_horizontal_start = horizontal_start_by_object["Cell"]
+            for key, value in reference_inputs.items():
+                if key.startswith("horizontal_start"):
+                    reference_inputs[key] = type(value)(cell_horizontal_start)
+        elif "Vertex" in horizontal_start_by_object:
+            vertex_horizontal_start = horizontal_start_by_object["Vertex"]
+            for key, value in reference_inputs.items():
+                if key.startswith("horizontal_start"):
+                    reference_inputs[key] = type(value)(vertex_horizontal_start)
+
+        for out in self.OUTPUTS:
+            out_name = out.name if isinstance(out, Output) else out
+            out_value = input_data.get(out_name)
+            if isinstance(out_value, gtx.Field):
+                grid_object = _horizontal_grid_object(out_value)
+                if grid_object in backtransform_by_object:
+                    self._reference_output_backtransform_by_name[out_name] = backtransform_by_object[
+                        grid_object
+                    ]
+
+        return (
+            _StructuredConnectivityConceptFixer(
+                _grid=grid,
+                _backtransform_by_object=backtransform_by_object,
+            ),
+            reference_inputs,
+        )
+
     def _verify_stencil_test(
         self,
         input_data: dict[str, gtx.Field | tuple[gtx.Field, ...]],
         reference_outputs: Mapping[str, np.ndarray | tuple[np.ndarray, ...]],
     ) -> None:
+        def _backtransform_reference_output(
+            out_name: str,
+            output: np.ndarray | tuple[np.ndarray, ...],
+        ) -> np.ndarray | tuple[np.ndarray, ...]:
+            backtransform = getattr(self, "_reference_output_backtransform_by_name", {}).get(out_name)
+            if backtransform is None:
+                return output
+            if isinstance(output, tuple):
+                return tuple(_to_structured(arr, backtransform) for arr in output)
+            return _to_structured(output, backtransform)
+
+
         for out in self.OUTPUTS:
             name, refslice, gtslice = (
                 (out.name, out.refslice, out.gtslice)
@@ -266,17 +584,26 @@ class StencilTest:
             # from PR#861. Reason is probably derivatives of random data. Investigate and lower tolerance back to 1e-7 if possible.
             relative_tolerance = 3e-6
             if isinstance(input_data_name, tuple):
+                reference_outputs_tuple = reference_outputs[name]# _backtransform_reference_output(name, reference_outputs[name])
+                assert isinstance(reference_outputs_tuple, tuple)
                 for i_out_field, out_field in enumerate(input_data_name):
                     test_utils.assert_dallclose(
                         out_field.asnumpy()[gtslice],
-                        reference_outputs[name][i_out_field][refslice],
+                        reference_outputs_tuple[i_out_field][refslice],
                         equal_nan=True,
                         err_msg=f"Verification failed for '{name}[{i_out_field}]'",
                         rtol=relative_tolerance,  # TODO(iomaganaris, havogt, nfarabullini): check above comment
                     )
             else:
-                reference_outputs_name = reference_outputs[name]  # for mypy
+                reference_outputs_name = reference_outputs[name]#_backtransform_reference_output(name, reference_outputs[name])  # for mypy
                 assert isinstance(reference_outputs_name, np.ndarray)
+                # write output and reference into other output files
+                open(f"stencil_output.txt", "w").write(str(input_data_name.asnumpy()[gtslice][:,0]) + "\n" + str(reference_outputs_name[refslice][:,0]))
+                # open(f"stencil_reference.txt", "w").write(str(reference_outputs_name[refslice][:,0]))
+                print(f"output:\n{input_data_name.asnumpy()[gtslice][:,0]}")
+                print(f"reference:\n{reference_outputs_name[refslice][:,0]}")
+                print(f"slices - gt4py: {gtslice}, reference: {refslice}")
+                print(f"input_data_name shape: {input_data_name.asnumpy().shape}, reference_outputs_name shape: {reference_outputs_name.shape}")
                 test_utils.assert_dallclose(
                     input_data_name.asnumpy()[gtslice],
                     reference_outputs_name[refslice],

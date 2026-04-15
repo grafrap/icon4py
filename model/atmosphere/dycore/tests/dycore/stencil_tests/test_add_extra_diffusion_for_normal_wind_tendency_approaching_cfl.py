@@ -15,12 +15,12 @@ from icon4py.model.atmosphere.dycore.stencils.add_extra_diffusion_for_normal_win
     add_extra_diffusion_for_normal_wind_tendency_approaching_cfl,
 )
 from icon4py.model.common import dimension as dims, type_alias as ta
-from icon4py.model.common.grid import base
+from icon4py.model.common.grid import base, horizontal as h_grid
 from icon4py.model.common.states import utils as state_utils
 from icon4py.model.common.utils import data_allocation as data_alloc
 from icon4py.model.testing.stencil_tests import StencilTest
 
-
+# IMPORTANT: DOES NOT WORK YET; NEITHER STRUCTURED NOR UNSTRUCTURED BACKEND.
 def add_extra_diffusion_for_normal_wind_tendency_approaching_cfl_numpy(
     connectivities: dict[gtx.Dimension, np.ndarray],
     levelmask: np.ndarray,
@@ -37,7 +37,11 @@ def add_extra_diffusion_for_normal_wind_tendency_approaching_cfl_numpy(
     cfl_w_limit: ta.wpfloat,
     scalfac_exdiff: ta.wpfloat,
     dtime: ta.wpfloat,
+    horizontal_start: int,
 ) -> np.ndarray:
+    # Warning
+    UserWarning("IMPORTANT WARNING: DOES NOT WORK YET; NEITHER STRUCTURED NOR UNSTRUCTURED BACKEND.")
+    exit(1)
     w_con_e = np.zeros_like(vn)
     difcoef = np.zeros_like(vn)
 
@@ -75,9 +79,11 @@ def add_extra_diffusion_for_normal_wind_tendency_approaching_cfl_numpy(
     )
     e2v = connectivities[dims.E2VDim]
     e2c2eo = connectivities[dims.E2C2EODim]
-    ddt_vn_apc = np.where(
+    # create mask, that only applies to [:horizontal_start,:]
+    horiz_mask = np.arange(vn.shape[0])[:, np.newaxis] < horizontal_start
+    ddt_vn_apc_cpy = np.where(
         ((levelmask_offset_0) | (levelmask_offset_1))
-        & (np.abs(w_con_e) > cfl_w_limit * ddqz_z_full_e),
+        & (np.abs(w_con_e) > cfl_w_limit * ddqz_z_full_e) & horiz_mask,
         ddt_vn_apc
         + difcoef
         * area_edge
@@ -94,13 +100,14 @@ def add_extra_diffusion_for_normal_wind_tendency_approaching_cfl_numpy(
         ),
         ddt_vn_apc,
     )
-    return ddt_vn_apc
+    return ddt_vn_apc_cpy
 
 
 @pytest.mark.embedded_remap_error
 class TestAddExtraDiffusionForNormalWindTendencyApproachingCfl(StencilTest):
     PROGRAM = add_extra_diffusion_for_normal_wind_tendency_approaching_cfl
     OUTPUTS = ("ddt_vn_apc",)
+    ENABLE_REFERENCE_TRANSLATION_FOR_STRUCTURED_BACKEND = True
 
     @pytest.fixture
     def input_data(self, grid: base.Grid) -> dict[str, gtx.Field | state_utils.ScalarType]:
@@ -120,6 +127,9 @@ class TestAddExtraDiffusionForNormalWindTendencyApproachingCfl(StencilTest):
         cfl_w_limit = ta.vpfloat("4.0")
         scalfac_exdiff = 6.0
         dtime = 2.0
+        edge_domain = h_grid.domain(dims.EdgeDim)
+        horizontal_start = grid.start_index(edge_domain(h_grid.Zone.LATERAL_BOUNDARY_LEVEL_3))
+        print(f"horizonta_start: ",horizontal_start)
         return dict(
             levelmask=levelmask,
             ddqz_z_full_e=ddqz_z_full_e,
@@ -135,7 +145,7 @@ class TestAddExtraDiffusionForNormalWindTendencyApproachingCfl(StencilTest):
             dtime=dtime,
             c_lin_e=c_lin_e,
             z_w_con_c_full=z_w_con_c_full,
-            horizontal_start=0,
+            horizontal_start=horizontal_start,
             horizontal_end=gtx.int32(grid.num_edges),
             vertical_start=0,
             vertical_end=gtx.int32(grid.num_levels),
@@ -158,6 +168,7 @@ class TestAddExtraDiffusionForNormalWindTendencyApproachingCfl(StencilTest):
         cfl_w_limit: ta.wpfloat,
         scalfac_exdiff: ta.wpfloat,
         dtime: ta.wpfloat,
+        horizontal_start: int,
         **kwargs: Any,
     ) -> dict:
         ddt_vn_apc = add_extra_diffusion_for_normal_wind_tendency_approaching_cfl_numpy(
@@ -176,5 +187,6 @@ class TestAddExtraDiffusionForNormalWindTendencyApproachingCfl(StencilTest):
             cfl_w_limit,
             scalfac_exdiff,
             dtime,
+            horizontal_start,
         )
         return dict(ddt_vn_apc=ddt_vn_apc)
