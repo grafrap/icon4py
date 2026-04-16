@@ -16,13 +16,13 @@
 *                                                                                         *
 *                                                                                         *
 *******************************************************************************************
- 2026-04-16 11:34:32,805 - standalone_driver.py: initialize_driver   : WARNING output path output already exists, a time stamp will be added
+ 2026-04-16 17:31:04,984 - standalone_driver.py: initialize_driver   : WARNING output path output already exists, a time stamp will be added
 Backend name used for the model: gtfn_cpu
-BackendLike derived from the backend name: {'backend_factory': <function make_custom_gtfn_backend at 0x77c427ec0790>, 'device': <DeviceType.CPU: 1>}
+BackendLike derived from the backend name: {'backend_factory': <function make_custom_gtfn_backend at 0x730555268700>, 'device': <DeviceType.CPU: 1>}
 Using custom backend 'run_gtfn_cpu_cached' for '' with options: {'device': <DeviceType.CPU: 1>}.
 Initializing the driver
 initializing the grid manager from '/home/raphael/Documents/Studium/Msc_thesis/grid-generator/parallelogram_grid.nc'
- 2026-04-16 11:34:32,838 - gridfile.py: open                : DEBUG   opened data set: <class 'netCDF4.Dataset'>
+ 2026-04-16 17:31:05,005 - gridfile.py: open                : DEBUG   opened data set: <class 'netCDF4.Dataset'>
 root group (NETCDF4 data model, file format HDF5):
     title: ICON grid description
     institution: Max Planck Institute for Meteorology/Deutscher Wetterdienst
@@ -61,54 +61,54 @@ root group (NETCDF4 data model, file format HDF5):
     dimensions(sizes): cell(416), vertex(238), edge(653), nc(2), nv(3), ne(6), no(4), max_chdom(1), cell_grf(14), edge_grf(24), vert_grf(13)
     variables(dimensions): float64 clon(cell), float64 clat(cell), float64 clon_vertices(cell, nv), float64 clat_vertices(cell, nv), float64 vlon(vertex), float64 vlat(vertex), float64 elon(edge), float64 elat(edge), float64 elon_vertices(edge, no), float64 elat_vertices(edge, no), float64 cell_area(cell), float64 dual_area(vertex), int32 phys_cell_id(cell), int32 phys_edge_id(edge), float64 lon_cell_centre(cell), float64 lat_cell_centre(cell), float64 longitude_vertices(vertex), float64 latitude_vertices(vertex), float64 lon_edge_centre(edge), float64 lat_edge_centre(edge), int32 edge_of_cell(nv, cell), int32 vertex_of_cell(nv, cell), int32 adjacent_cell_of_edge(nc, edge), int32 edge_vertices(nc, edge), int32 cells_of_vertex(ne, vertex), int32 edges_of_vertex(ne, vertex), int32 vertices_of_vertex(ne, vertex), float64 cell_area_p(cell), float64 cell_elevation(cell), int32 cell_sea_land_mask(cell), float64 dual_area_p(vertex), float64 edge_length(edge), float64 edge_cell_distance(nc, edge), float64 dual_edge_length(edge), float64 edgequad_area(edge), float64 edge_elevation(edge), int32 edge_sea_land_mask(edge), float64 edge_vert_distance(nc, edge), float64 zonal_normal_primal_edge(edge), float64 meridional_normal_primal_edge(edge), float64 zonal_normal_dual_edge(edge), float64 meridional_normal_dual_edge(edge), int32 orientation_of_normal(nv, cell), int32 cell_index(cell), int32 parent_cell_index(cell), int32 parent_cell_type(cell), int32 neighbor_cell_index(nv, cell), int32 child_cell_index(no, cell), int32 child_cell_id(cell), int32 edge_index(edge), int32 edge_parent_type(edge), int32 vertex_index(vertex), int32 edge_orientation(ne, vertex), int32 edge_system_orientation(edge), int32 refin_c_ctrl(cell), int32 start_idx_c(max_chdom, cell_grf), int32 end_idx_c(max_chdom, cell_grf), int32 refin_e_ctrl(edge), int32 start_idx_e(max_chdom, edge_grf), int32 end_idx_e(max_chdom, edge_grf), int32 refin_v_ctrl(vertex), int32 start_idx_v(max_chdom, vert_grf), int32 end_idx_v(max_chdom, vert_grf), int32 parent_edge_index(edge), int32 child_edge_index(no, edge), int32 child_edge_id(edge), int32 parent_vertex_index(vertex), int32 edge_translation_index(edge), int32 cell_translation_index(cell), int32 vertex_translation_index(vertex), float64 cartesian_x_vertices(vertex), float64 cartesian_y_vertices(vertex), float64 cartesian_z_vertices(vertex), float64 edge_middle_cartesian_x(edge), float64 edge_middle_cartesian_y(edge), float64 edge_middle_cartesian_z(edge), float64 edge_dual_middle_cartesian_x(edge), float64 edge_dual_middle_cartesian_y(edge), float64 edge_dual_middle_cartesian_z(edge), float64 edge_primal_normal_cartesian_x(edge), float64 edge_primal_normal_cartesian_y(edge), float64 edge_primal_normal_cartesian_z(edge), float64 edge_dual_normal_cartesian_x(edge), float64 edge_dual_normal_cartesian_y(edge), float64 edge_dual_normal_cartesian_z(edge), float64 cell_circumcenter_cartesian_x(cell), float64 cell_circumcenter_cartesian_y(cell), float64 cell_circumcenter_cartesian_z(cell)
     groups: 
- 2026-04-16 11:34:32,839 - gridfile.py: variable            : DEBUG   reading refin_c_ctrl: transposing = False
- 2026-04-16 11:34:32,841 - gridfile.py: int_variable        : DEBUG   reading neighbor_cell_index: transposing = True apply_offset=True
- 2026-04-16 11:34:32,841 - gridfile.py: variable            : DEBUG   reading neighbor_cell_index: transposing = True
- 2026-04-16 11:34:32,857 - gridfile.py: int_variable        : DEBUG   reading edge_of_cell: transposing = True apply_offset=True
- 2026-04-16 11:34:32,857 - gridfile.py: variable            : DEBUG   reading edge_of_cell: transposing = True
- 2026-04-16 11:34:32,858 - gridfile.py: int_variable        : DEBUG   reading adjacent_cell_of_edge: transposing = True apply_offset=True
- 2026-04-16 11:34:32,858 - gridfile.py: variable            : DEBUG   reading adjacent_cell_of_edge: transposing = True
- 2026-04-16 11:34:32,859 - gridfile.py: int_variable        : DEBUG   reading edges_of_vertex: transposing = True apply_offset=True
- 2026-04-16 11:34:32,859 - gridfile.py: variable            : DEBUG   reading edges_of_vertex: transposing = True
- 2026-04-16 11:34:32,860 - gridfile.py: int_variable        : DEBUG   reading cells_of_vertex: transposing = True apply_offset=True
- 2026-04-16 11:34:32,860 - gridfile.py: variable            : DEBUG   reading cells_of_vertex: transposing = True
- 2026-04-16 11:34:32,861 - gridfile.py: int_variable        : DEBUG   reading vertex_of_cell: transposing = True apply_offset=True
- 2026-04-16 11:34:32,861 - gridfile.py: variable            : DEBUG   reading vertex_of_cell: transposing = True
- 2026-04-16 11:34:32,862 - gridfile.py: int_variable        : DEBUG   reading vertices_of_vertex: transposing = True apply_offset=True
- 2026-04-16 11:34:32,862 - gridfile.py: variable            : DEBUG   reading vertices_of_vertex: transposing = True
- 2026-04-16 11:34:32,862 - gridfile.py: int_variable        : DEBUG   reading edge_vertices: transposing = True apply_offset=True
- 2026-04-16 11:34:32,862 - gridfile.py: variable            : DEBUG   reading edge_vertices: transposing = True
- 2026-04-16 11:34:32,905 - gridfile.py: int_variable        : DEBUG   reading refin_c_ctrl: transposing = False apply_offset=False
- 2026-04-16 11:34:32,905 - gridfile.py: variable            : DEBUG   reading refin_c_ctrl: transposing = False
- 2026-04-16 11:34:32,907 - gridfile.py: int_variable        : DEBUG   reading refin_e_ctrl: transposing = False apply_offset=False
- 2026-04-16 11:34:32,907 - gridfile.py: variable            : DEBUG   reading refin_e_ctrl: transposing = False
- 2026-04-16 11:34:32,909 - gridfile.py: int_variable        : DEBUG   reading refin_v_ctrl: transposing = False apply_offset=False
- 2026-04-16 11:34:32,909 - gridfile.py: variable            : DEBUG   reading refin_v_ctrl: transposing = False
- 2026-04-16 11:34:32,919 - gridfile.py: variable            : DEBUG   reading clat: transposing = False
- 2026-04-16 11:34:32,921 - gridfile.py: variable            : DEBUG   reading clon: transposing = False
- 2026-04-16 11:34:32,924 - gridfile.py: variable            : DEBUG   reading elat: transposing = False
- 2026-04-16 11:34:32,925 - gridfile.py: variable            : DEBUG   reading elon: transposing = False
- 2026-04-16 11:34:32,926 - gridfile.py: variable            : DEBUG   reading vlat: transposing = False
- 2026-04-16 11:34:32,928 - gridfile.py: variable            : DEBUG   reading vlon: transposing = False
- 2026-04-16 11:34:32,929 - gridfile.py: variable            : DEBUG   reading cell_circumcenter_cartesian_x: transposing = False
- 2026-04-16 11:34:32,930 - gridfile.py: variable            : DEBUG   reading cell_circumcenter_cartesian_y: transposing = False
- 2026-04-16 11:34:32,931 - gridfile.py: variable            : DEBUG   reading cell_circumcenter_cartesian_z: transposing = False
- 2026-04-16 11:34:32,932 - gridfile.py: variable            : DEBUG   reading edge_middle_cartesian_x: transposing = False
- 2026-04-16 11:34:32,934 - gridfile.py: variable            : DEBUG   reading edge_middle_cartesian_y: transposing = False
- 2026-04-16 11:34:32,936 - gridfile.py: variable            : DEBUG   reading edge_middle_cartesian_z: transposing = False
- 2026-04-16 11:34:32,937 - gridfile.py: variable            : DEBUG   reading cartesian_x_vertices: transposing = False
- 2026-04-16 11:34:32,938 - gridfile.py: variable            : DEBUG   reading cartesian_y_vertices: transposing = False
- 2026-04-16 11:34:32,939 - gridfile.py: variable            : DEBUG   reading cartesian_z_vertices: transposing = False
- 2026-04-16 11:34:32,940 - gridfile.py: variable            : DEBUG   reading cell_area: transposing = False
- 2026-04-16 11:34:32,941 - gridfile.py: variable            : DEBUG   reading dual_area: transposing = False
- 2026-04-16 11:34:32,942 - gridfile.py: variable            : DEBUG   reading edge_length: transposing = False
- 2026-04-16 11:34:32,942 - gridfile.py: variable            : DEBUG   reading dual_edge_length: transposing = False
- 2026-04-16 11:34:32,943 - gridfile.py: variable            : DEBUG   reading edge_cell_distance: transposing = True
- 2026-04-16 11:34:32,945 - gridfile.py: variable            : DEBUG   reading edge_vert_distance: transposing = True
- 2026-04-16 11:34:32,946 - gridfile.py: variable            : DEBUG   reading edge_system_orientation: transposing = False
- 2026-04-16 11:34:32,948 - gridfile.py: variable            : DEBUG   reading orientation_of_normal: transposing = True
- 2026-04-16 11:34:32,949 - gridfile.py: int_variable        : DEBUG   reading edge_orientation: transposing = True apply_offset=False
- 2026-04-16 11:34:32,949 - gridfile.py: variable            : DEBUG   reading edge_orientation: transposing = True
+ 2026-04-16 17:31:05,005 - gridfile.py: variable            : DEBUG   reading refin_c_ctrl: transposing = False
+ 2026-04-16 17:31:05,006 - gridfile.py: int_variable        : DEBUG   reading neighbor_cell_index: transposing = True apply_offset=True
+ 2026-04-16 17:31:05,006 - gridfile.py: variable            : DEBUG   reading neighbor_cell_index: transposing = True
+ 2026-04-16 17:31:05,012 - gridfile.py: int_variable        : DEBUG   reading edge_of_cell: transposing = True apply_offset=True
+ 2026-04-16 17:31:05,013 - gridfile.py: variable            : DEBUG   reading edge_of_cell: transposing = True
+ 2026-04-16 17:31:05,013 - gridfile.py: int_variable        : DEBUG   reading adjacent_cell_of_edge: transposing = True apply_offset=True
+ 2026-04-16 17:31:05,013 - gridfile.py: variable            : DEBUG   reading adjacent_cell_of_edge: transposing = True
+ 2026-04-16 17:31:05,013 - gridfile.py: int_variable        : DEBUG   reading edges_of_vertex: transposing = True apply_offset=True
+ 2026-04-16 17:31:05,013 - gridfile.py: variable            : DEBUG   reading edges_of_vertex: transposing = True
+ 2026-04-16 17:31:05,014 - gridfile.py: int_variable        : DEBUG   reading cells_of_vertex: transposing = True apply_offset=True
+ 2026-04-16 17:31:05,014 - gridfile.py: variable            : DEBUG   reading cells_of_vertex: transposing = True
+ 2026-04-16 17:31:05,014 - gridfile.py: int_variable        : DEBUG   reading vertex_of_cell: transposing = True apply_offset=True
+ 2026-04-16 17:31:05,014 - gridfile.py: variable            : DEBUG   reading vertex_of_cell: transposing = True
+ 2026-04-16 17:31:05,014 - gridfile.py: int_variable        : DEBUG   reading vertices_of_vertex: transposing = True apply_offset=True
+ 2026-04-16 17:31:05,015 - gridfile.py: variable            : DEBUG   reading vertices_of_vertex: transposing = True
+ 2026-04-16 17:31:05,015 - gridfile.py: int_variable        : DEBUG   reading edge_vertices: transposing = True apply_offset=True
+ 2026-04-16 17:31:05,015 - gridfile.py: variable            : DEBUG   reading edge_vertices: transposing = True
+ 2026-04-16 17:31:05,034 - gridfile.py: int_variable        : DEBUG   reading refin_c_ctrl: transposing = False apply_offset=False
+ 2026-04-16 17:31:05,034 - gridfile.py: variable            : DEBUG   reading refin_c_ctrl: transposing = False
+ 2026-04-16 17:31:05,035 - gridfile.py: int_variable        : DEBUG   reading refin_e_ctrl: transposing = False apply_offset=False
+ 2026-04-16 17:31:05,035 - gridfile.py: variable            : DEBUG   reading refin_e_ctrl: transposing = False
+ 2026-04-16 17:31:05,036 - gridfile.py: int_variable        : DEBUG   reading refin_v_ctrl: transposing = False apply_offset=False
+ 2026-04-16 17:31:05,036 - gridfile.py: variable            : DEBUG   reading refin_v_ctrl: transposing = False
+ 2026-04-16 17:31:05,041 - gridfile.py: variable            : DEBUG   reading clat: transposing = False
+ 2026-04-16 17:31:05,041 - gridfile.py: variable            : DEBUG   reading clon: transposing = False
+ 2026-04-16 17:31:05,042 - gridfile.py: variable            : DEBUG   reading elat: transposing = False
+ 2026-04-16 17:31:05,042 - gridfile.py: variable            : DEBUG   reading elon: transposing = False
+ 2026-04-16 17:31:05,043 - gridfile.py: variable            : DEBUG   reading vlat: transposing = False
+ 2026-04-16 17:31:05,043 - gridfile.py: variable            : DEBUG   reading vlon: transposing = False
+ 2026-04-16 17:31:05,044 - gridfile.py: variable            : DEBUG   reading cell_circumcenter_cartesian_x: transposing = False
+ 2026-04-16 17:31:05,044 - gridfile.py: variable            : DEBUG   reading cell_circumcenter_cartesian_y: transposing = False
+ 2026-04-16 17:31:05,045 - gridfile.py: variable            : DEBUG   reading cell_circumcenter_cartesian_z: transposing = False
+ 2026-04-16 17:31:05,045 - gridfile.py: variable            : DEBUG   reading edge_middle_cartesian_x: transposing = False
+ 2026-04-16 17:31:05,046 - gridfile.py: variable            : DEBUG   reading edge_middle_cartesian_y: transposing = False
+ 2026-04-16 17:31:05,046 - gridfile.py: variable            : DEBUG   reading edge_middle_cartesian_z: transposing = False
+ 2026-04-16 17:31:05,047 - gridfile.py: variable            : DEBUG   reading cartesian_x_vertices: transposing = False
+ 2026-04-16 17:31:05,047 - gridfile.py: variable            : DEBUG   reading cartesian_y_vertices: transposing = False
+ 2026-04-16 17:31:05,048 - gridfile.py: variable            : DEBUG   reading cartesian_z_vertices: transposing = False
+ 2026-04-16 17:31:05,048 - gridfile.py: variable            : DEBUG   reading cell_area: transposing = False
+ 2026-04-16 17:31:05,049 - gridfile.py: variable            : DEBUG   reading dual_area: transposing = False
+ 2026-04-16 17:31:05,049 - gridfile.py: variable            : DEBUG   reading edge_length: transposing = False
+ 2026-04-16 17:31:05,050 - gridfile.py: variable            : DEBUG   reading dual_edge_length: transposing = False
+ 2026-04-16 17:31:05,050 - gridfile.py: variable            : DEBUG   reading edge_cell_distance: transposing = True
+ 2026-04-16 17:31:05,051 - gridfile.py: variable            : DEBUG   reading edge_vert_distance: transposing = True
+ 2026-04-16 17:31:05,052 - gridfile.py: variable            : DEBUG   reading edge_system_orientation: transposing = False
+ 2026-04-16 17:31:05,052 - gridfile.py: variable            : DEBUG   reading orientation_of_normal: transposing = True
+ 2026-04-16 17:31:05,053 - gridfile.py: int_variable        : DEBUG   reading edge_orientation: transposing = True apply_offset=False
+ 2026-04-16 17:31:05,053 - gridfile.py: variable            : DEBUG   reading edge_orientation: transposing = True
 creating the decomposition info
 initializing the vertical grid
 computation of moist physics start on layer: 1
@@ -201,7 +201,7 @@ initializing geometry for backend = 'run_gtfn_cpu_cached' and grid = 'IconGrid(i
        ...,
        [650, 632, 608, 631, 605],
        [651, 633, 609, 632, 606],
-       [652, 634, 610, 633, 607]], dtype=int32), _codomain=Dimension(value='Edge', kind=<DimensionKind.HORIZONTAL: 'horizontal'>), _skip_value=-1), 'Koff': Dimension(value='K', kind=<DimensionKind.VERTICAL: 'vertical'>)}, geometry_type=<GeometryType.CARTESIAN: 4>, start_index=<function get_start_and_end_index.<locals>.start_index at 0x77c40c446a70>, end_index=<function get_start_and_end_index.<locals>.end_index at 0x77c40c4c1f30>, global_properties=GlobalGridParams(grid_shape=GridShape(geometry_type=<GeometryType.CARTESIAN: 4>, subdivision=GridSubdivision(root=np.int32(2), level=np.int32(0))), radius=np.float64(6371229.0), domain_length=np.float64(197.55727826900002), domain_height=np.float64(210.57184207195746), global_num_cells=None, num_cells=416, num_edges=None, num_vertices=None, characteristic_length=None, limited_area=False), refinement_control={Dimension(value='Cell', kind=<DimensionKind.HORIZONTAL: 'horizontal'>): NumPyArrayField(_domain=Domain(dims=(Dimension(value='Cell', kind=<DimensionKind.HORIZONTAL: 'horizontal'>),), ranges=(UnitRange(0, 416),)), _ndarray=array([1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+       [652, 634, 610, 633, 607]], dtype=int32), _codomain=Dimension(value='Edge', kind=<DimensionKind.HORIZONTAL: 'horizontal'>), _skip_value=-1), 'Koff': Dimension(value='K', kind=<DimensionKind.VERTICAL: 'vertical'>)}, geometry_type=<GeometryType.CARTESIAN: 4>, start_index=<function get_start_and_end_index.<locals>.start_index at 0x730539c02680>, end_index=<function get_start_and_end_index.<locals>.end_index at 0x730539c81b40>, global_properties=GlobalGridParams(grid_shape=GridShape(geometry_type=<GeometryType.CARTESIAN: 4>, subdivision=GridSubdivision(root=np.int32(2), level=np.int32(0))), radius=np.float64(6371229.0), domain_length=np.float64(197.55727826900002), domain_height=np.float64(210.57184207195746), global_num_cells=None, num_cells=416, num_edges=None, num_vertices=None, characteristic_length=None, limited_area=False), refinement_control={Dimension(value='Cell', kind=<DimensionKind.HORIZONTAL: 'horizontal'>): NumPyArrayField(_domain=Domain(dims=(Dimension(value='Cell', kind=<DimensionKind.HORIZONTAL: 'horizontal'>),), ranges=(UnitRange(0, 416),)), _ndarray=array([1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
        1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
        1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
        1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
@@ -353,7 +353,7 @@ initialized interpolation factory for backend = 'run_gtfn_cpu_cached' and grid =
        ...,
        [650, 632, 608, 631, 605],
        [651, 633, 609, 632, 606],
-       [652, 634, 610, 633, 607]], dtype=int32), _codomain=Dimension(value='Edge', kind=<DimensionKind.HORIZONTAL: 'horizontal'>), _skip_value=-1), 'Koff': Dimension(value='K', kind=<DimensionKind.VERTICAL: 'vertical'>)}, geometry_type=<GeometryType.CARTESIAN: 4>, start_index=<function get_start_and_end_index.<locals>.start_index at 0x77c40c446a70>, end_index=<function get_start_and_end_index.<locals>.end_index at 0x77c40c4c1f30>, global_properties=GlobalGridParams(grid_shape=GridShape(geometry_type=<GeometryType.CARTESIAN: 4>, subdivision=GridSubdivision(root=np.int32(2), level=np.int32(0))), radius=np.float64(6371229.0), domain_length=np.float64(197.55727826900002), domain_height=np.float64(210.57184207195746), global_num_cells=None, num_cells=416, num_edges=None, num_vertices=None, characteristic_length=None, limited_area=False), refinement_control={Dimension(value='Cell', kind=<DimensionKind.HORIZONTAL: 'horizontal'>): NumPyArrayField(_domain=Domain(dims=(Dimension(value='Cell', kind=<DimensionKind.HORIZONTAL: 'horizontal'>),), ranges=(UnitRange(0, 416),)), _ndarray=array([1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+       [652, 634, 610, 633, 607]], dtype=int32), _codomain=Dimension(value='Edge', kind=<DimensionKind.HORIZONTAL: 'horizontal'>), _skip_value=-1), 'Koff': Dimension(value='K', kind=<DimensionKind.VERTICAL: 'vertical'>)}, geometry_type=<GeometryType.CARTESIAN: 4>, start_index=<function get_start_and_end_index.<locals>.start_index at 0x730539c02680>, end_index=<function get_start_and_end_index.<locals>.end_index at 0x730539c81b40>, global_properties=GlobalGridParams(grid_shape=GridShape(geometry_type=<GeometryType.CARTESIAN: 4>, subdivision=GridSubdivision(root=np.int32(2), level=np.int32(0))), radius=np.float64(6371229.0), domain_length=np.float64(197.55727826900002), domain_height=np.float64(210.57184207195746), global_num_cells=None, num_cells=416, num_edges=None, num_vertices=None, characteristic_length=None, limited_area=False), refinement_control={Dimension(value='Cell', kind=<DimensionKind.HORIZONTAL: 'horizontal'>): NumPyArrayField(_domain=Domain(dims=(Dimension(value='Cell', kind=<DimensionKind.HORIZONTAL: 'horizontal'>),), ranges=(UnitRange(0, 416),)), _ndarray=array([1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
        1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
        1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
        1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
@@ -421,7 +421,7 @@ initialized interpolation factory for backend = 'run_gtfn_cpu_cached' and grid =
        4, 4, 4, 4, 4, 4, 4, 4, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5,
        5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0], dtype=int32))})'
- 2026-04-16 11:34:32,984 - interpolation_factory.py: __init__            : DEBUG   using array_ns <module 'numpy' from '/home/raphael/Documents/Studium/Msc_thesis/icon4py/.venv/lib/python3.10/site-packages/numpy/__init__.py'> 
+ 2026-04-16 17:31:05,069 - interpolation_factory.py: __init__            : DEBUG   using array_ns <module 'numpy' from '/home/raphael/Documents/Studium/Msc_thesis/icon4py/.venv/lib/python3.10/site-packages/numpy/__init__.py'> 
 initialized metrics factory for backend = 'run_gtfn_cpu_cached' and grid = 'IconGrid(id='60deab68-3336-11f1-969c-2d2c0ad2109e', config=GridConfig(horizontal_config=<class 'icon4py.model.common.grid.base.HorizontalGridSize'> (<num_cells = 416>, <num_edges=653>, <num_verts = 238), vertical_size=35, limited_area=True, distributed=False, n_shift_total=0, length_rescale_factor=1.0, lvertnest=False, keep_skip_values=True), connectivities={'C2E2C': NumPyArrayConnectivityField(_domain=Domain(dims=(Dimension(value='Cell', kind=<DimensionKind.HORIZONTAL: 'horizontal'>), Dimension(value='C2E2C', kind=<DimensionKind.LOCAL: 'local'>)), ranges=(UnitRange(0, 416), UnitRange(0, 3))), _ndarray=array([[ -1,  12,  -1],
        [ -1,  13,  12],
        [ -1,  14,  13],
@@ -506,7 +506,7 @@ initialized metrics factory for backend = 'run_gtfn_cpu_cached' and grid = 'Icon
        ...,
        [650, 632, 608, 631, 605],
        [651, 633, 609, 632, 606],
-       [652, 634, 610, 633, 607]], dtype=int32), _codomain=Dimension(value='Edge', kind=<DimensionKind.HORIZONTAL: 'horizontal'>), _skip_value=-1), 'Koff': Dimension(value='K', kind=<DimensionKind.VERTICAL: 'vertical'>)}, geometry_type=<GeometryType.CARTESIAN: 4>, start_index=<function get_start_and_end_index.<locals>.start_index at 0x77c40c446a70>, end_index=<function get_start_and_end_index.<locals>.end_index at 0x77c40c4c1f30>, global_properties=GlobalGridParams(grid_shape=GridShape(geometry_type=<GeometryType.CARTESIAN: 4>, subdivision=GridSubdivision(root=np.int32(2), level=np.int32(0))), radius=np.float64(6371229.0), domain_length=np.float64(197.55727826900002), domain_height=np.float64(210.57184207195746), global_num_cells=None, num_cells=416, num_edges=None, num_vertices=None, characteristic_length=None, limited_area=False), refinement_control={Dimension(value='Cell', kind=<DimensionKind.HORIZONTAL: 'horizontal'>): NumPyArrayField(_domain=Domain(dims=(Dimension(value='Cell', kind=<DimensionKind.HORIZONTAL: 'horizontal'>),), ranges=(UnitRange(0, 416),)), _ndarray=array([1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+       [652, 634, 610, 633, 607]], dtype=int32), _codomain=Dimension(value='Edge', kind=<DimensionKind.HORIZONTAL: 'horizontal'>), _skip_value=-1), 'Koff': Dimension(value='K', kind=<DimensionKind.VERTICAL: 'vertical'>)}, geometry_type=<GeometryType.CARTESIAN: 4>, start_index=<function get_start_and_end_index.<locals>.start_index at 0x730539c02680>, end_index=<function get_start_and_end_index.<locals>.end_index at 0x730539c81b40>, global_properties=GlobalGridParams(grid_shape=GridShape(geometry_type=<GeometryType.CARTESIAN: 4>, subdivision=GridSubdivision(root=np.int32(2), level=np.int32(0))), radius=np.float64(6371229.0), domain_length=np.float64(197.55727826900002), domain_height=np.float64(210.57184207195746), global_num_cells=None, num_cells=416, num_edges=None, num_vertices=None, characteristic_length=None, limited_area=False), refinement_control={Dimension(value='Cell', kind=<DimensionKind.HORIZONTAL: 'horizontal'>): NumPyArrayField(_domain=Domain(dims=(Dimension(value='Cell', kind=<DimensionKind.HORIZONTAL: 'horizontal'>),), ranges=(UnitRange(0, 416),)), _ndarray=array([1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
        1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
        1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
        1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
@@ -574,7 +574,7 @@ initialized metrics factory for backend = 'run_gtfn_cpu_cached' and grid = 'Icon
        4, 4, 4, 4, 4, 4, 4, 4, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5,
        5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0], dtype=int32))})'
- 2026-04-16 11:34:33,019 - metrics_factory.py: __init__            : DEBUG   using array_ns <module 'numpy' from '/home/raphael/Documents/Studium/Msc_thesis/icon4py/.venv/lib/python3.10/site-packages/numpy/__init__.py'> 
+ 2026-04-16 17:31:05,077 - metrics_factory.py: __init__            : DEBUG   using array_ns <module 'numpy' from '/home/raphael/Documents/Studium/Msc_thesis/icon4py/.venv/lib/python3.10/site-packages/numpy/__init__.py'> 
 initializing granules
 creating cell geometry
  retrieving field grid_latitude_of_cell_center (mode = RetrievalType.FIELD)
@@ -588,34 +588,32 @@ creating edge geometry
  retrieving field edge_orientation (mode = RetrievalType.FIELD)
  retrieving field inverse_of_edge_length (mode = RetrievalType.FIELD)
  retrieving field inverse_of_edge_length (mode = RetrievalType.METADATA)
- 2026-04-16 11:34:33,343 - factory.py: _compute            : DEBUG    getting dependencies dict_values(['edge_length']) from GridGeometry for geometry_type=CARTESIAN (grid='60deab68-3336-11f1-969c-2d2c0ad2109e')
+ 2026-04-16 17:31:05,189 - factory.py: _compute            : DEBUG    getting dependencies dict_values(['edge_length']) from GridGeometry for geometry_type=CARTESIAN (grid='60deab68-3336-11f1-969c-2d2c0ad2109e')
  retrieving field edge_length (mode = RetrievalType.FIELD)
-Inferred structured remap sizes from /home/raphael/Documents/Studium/Msc_thesis/grid-generator/parallelogram_grid.nc: StructuredRemapSizes(nx=13, ny=16, max_i=17, max_j=14, vertex_size=238, edge_size_padded=714, cell_size=416, end_i=15, end_j=12, lateral=2, start_i=2, start_j=2)
- 2026-04-16 11:34:45,934 - factory.py: exchange            : DEBUG   provider for fields dict_keys(['inverse_of_edge_length']) needs exchange True
- 2026-04-16 11:34:45,934 - factory.py: exchange            : DEBUG   preparing exchange of inverse_of_edge_length - ⟨Domain(Edge[horizontal]=(0:653)) → DType(scalar_type=<class 'numpy.float64'>, tensor_shape=())⟩
- 2026-04-16 11:34:45,934 - factory.py: exchange            : DEBUG   exchanged buffer for inverse_of_edge_length
+ 2026-04-16 17:31:13,598 - factory.py: exchange            : DEBUG   provider for fields dict_keys(['inverse_of_edge_length']) needs exchange True
+ 2026-04-16 17:31:13,599 - factory.py: exchange            : DEBUG   preparing exchange of inverse_of_edge_length - ⟨Domain(Edge[horizontal]=(0:653)) → DType(scalar_type=<class 'numpy.float64'>, tensor_shape=())⟩
+ 2026-04-16 17:31:13,599 - factory.py: exchange            : DEBUG   exchanged buffer for inverse_of_edge_length
  retrieving field inverse_of_length_of_dual_edge (mode = RetrievalType.FIELD)
  retrieving field inverse_of_length_of_dual_edge (mode = RetrievalType.METADATA)
- 2026-04-16 11:34:45,935 - factory.py: _compute            : DEBUG    getting dependencies dict_values(['length_of_dual_edge']) from GridGeometry for geometry_type=CARTESIAN (grid='60deab68-3336-11f1-969c-2d2c0ad2109e')
+ 2026-04-16 17:31:13,599 - factory.py: _compute            : DEBUG    getting dependencies dict_values(['length_of_dual_edge']) from GridGeometry for geometry_type=CARTESIAN (grid='60deab68-3336-11f1-969c-2d2c0ad2109e')
  retrieving field length_of_dual_edge (mode = RetrievalType.FIELD)
- 2026-04-16 11:34:45,961 - factory.py: exchange            : DEBUG   provider for fields dict_keys(['inverse_of_length_of_dual_edge']) needs exchange True
- 2026-04-16 11:34:45,961 - factory.py: exchange            : DEBUG   preparing exchange of inverse_of_length_of_dual_edge - ⟨Domain(Edge[horizontal]=(0:653)) → DType(scalar_type=<class 'numpy.float64'>, tensor_shape=())⟩
- 2026-04-16 11:34:45,961 - factory.py: exchange            : DEBUG   exchanged buffer for inverse_of_length_of_dual_edge
+ 2026-04-16 17:31:13,611 - factory.py: exchange            : DEBUG   provider for fields dict_keys(['inverse_of_length_of_dual_edge']) needs exchange True
+ 2026-04-16 17:31:13,611 - factory.py: exchange            : DEBUG   preparing exchange of inverse_of_length_of_dual_edge - ⟨Domain(Edge[horizontal]=(0:653)) → DType(scalar_type=<class 'numpy.float64'>, tensor_shape=())⟩
+ 2026-04-16 17:31:13,611 - factory.py: exchange            : DEBUG   exchanged buffer for inverse_of_length_of_dual_edge
  retrieving field inverse_of_vertex_vertex_length (mode = RetrievalType.FIELD)
  retrieving field inverse_of_vertex_vertex_length (mode = RetrievalType.METADATA)
- 2026-04-16 11:34:45,961 - factory.py: _compute            : DEBUG    getting dependencies dict_values(['vertex_vertex_length']) from GridGeometry for geometry_type=CARTESIAN (grid='60deab68-3336-11f1-969c-2d2c0ad2109e')
+ 2026-04-16 17:31:13,612 - factory.py: _compute            : DEBUG    getting dependencies dict_values(['vertex_vertex_length']) from GridGeometry for geometry_type=CARTESIAN (grid='60deab68-3336-11f1-969c-2d2c0ad2109e')
  retrieving field vertex_vertex_length (mode = RetrievalType.FIELD)
  retrieving field vertex_vertex_length (mode = RetrievalType.METADATA)
- 2026-04-16 11:34:45,962 - factory.py: _compute            : DEBUG    getting dependencies dict_values(['x_component_of_vertex', 'y_component_of_vertex']) from GridGeometry for geometry_type=CARTESIAN (grid='60deab68-3336-11f1-969c-2d2c0ad2109e')
+ 2026-04-16 17:31:13,612 - factory.py: _compute            : DEBUG    getting dependencies dict_values(['x_component_of_vertex', 'y_component_of_vertex']) from GridGeometry for geometry_type=CARTESIAN (grid='60deab68-3336-11f1-969c-2d2c0ad2109e')
  retrieving field x_component_of_vertex (mode = RetrievalType.FIELD)
  retrieving field y_component_of_vertex (mode = RetrievalType.FIELD)
-Inferred structured remap sizes from /home/raphael/Documents/Studium/Msc_thesis/grid-generator/parallelogram_grid.nc: StructuredRemapSizes(nx=13, ny=16, max_i=17, max_j=14, vertex_size=238, edge_size_padded=714, cell_size=416, end_i=15, end_j=12, lateral=2, start_i=2, start_j=2)
- 2026-04-16 11:34:54,832 - factory.py: exchange            : DEBUG   provider for fields dict_keys(['vertex_vertex_length']) needs exchange True
- 2026-04-16 11:34:54,832 - factory.py: exchange            : DEBUG   preparing exchange of vertex_vertex_length - ⟨Domain(Edge[horizontal]=(0:653)) → DType(scalar_type=<class 'numpy.float64'>, tensor_shape=())⟩
- 2026-04-16 11:34:54,833 - factory.py: exchange            : DEBUG   exchanged buffer for vertex_vertex_length
- 2026-04-16 11:34:54,846 - factory.py: exchange            : DEBUG   provider for fields dict_keys(['inverse_of_vertex_vertex_length']) needs exchange True
- 2026-04-16 11:34:54,847 - factory.py: exchange            : DEBUG   preparing exchange of inverse_of_vertex_vertex_length - ⟨Domain(Edge[horizontal]=(0:653)) → DType(scalar_type=<class 'numpy.float64'>, tensor_shape=())⟩
- 2026-04-16 11:34:54,847 - factory.py: exchange            : DEBUG   exchanged buffer for inverse_of_vertex_vertex_length
+ 2026-04-16 17:31:16,137 - factory.py: exchange            : DEBUG   provider for fields dict_keys(['vertex_vertex_length']) needs exchange True
+ 2026-04-16 17:31:16,137 - factory.py: exchange            : DEBUG   preparing exchange of vertex_vertex_length - ⟨Domain(Edge[horizontal]=(0:653)) → DType(scalar_type=<class 'numpy.float64'>, tensor_shape=())⟩
+ 2026-04-16 17:31:16,137 - factory.py: exchange            : DEBUG   exchanged buffer for vertex_vertex_length
+ 2026-04-16 17:31:16,155 - factory.py: exchange            : DEBUG   provider for fields dict_keys(['inverse_of_vertex_vertex_length']) needs exchange True
+ 2026-04-16 17:31:16,155 - factory.py: exchange            : DEBUG   preparing exchange of inverse_of_vertex_vertex_length - ⟨Domain(Edge[horizontal]=(0:653)) → DType(scalar_type=<class 'numpy.float64'>, tensor_shape=())⟩
+ 2026-04-16 17:31:16,156 - factory.py: exchange            : DEBUG   exchanged buffer for inverse_of_vertex_vertex_length
  retrieving field eastward_component_of_edge_normal_on_vertex (mode = RetrievalType.FIELD)
  retrieving field x_component_of_edge_tangential_unit_vector (mode = RetrievalType.METADATA)
  retrieving field y_component_of_edge_tangential_unit_vector (mode = RetrievalType.METADATA)
@@ -627,51 +625,49 @@ Inferred structured remap sizes from /home/raphael/Documents/Studium/Msc_thesis/
  retrieving field z_component_of_edge_normal_unit_vector (mode = RetrievalType.METADATA)
  retrieving field eastward_component_of_edge_normal (mode = RetrievalType.METADATA)
  retrieving field northward_component_of_edge_normal (mode = RetrievalType.METADATA)
- 2026-04-16 11:34:54,850 - factory.py: _compute            : DEBUG    getting dependencies dict_values(['x_component_of_vertex', 'y_component_of_vertex', 'x_coordinate_of_edge_center', 'y_coordinate_of_edge_center', 'edge_orientation']) from GridGeometry for geometry_type=CARTESIAN (grid='60deab68-3336-11f1-969c-2d2c0ad2109e')
+ 2026-04-16 17:31:16,159 - factory.py: _compute            : DEBUG    getting dependencies dict_values(['x_component_of_vertex', 'y_component_of_vertex', 'x_coordinate_of_edge_center', 'y_coordinate_of_edge_center', 'edge_orientation']) from GridGeometry for geometry_type=CARTESIAN (grid='60deab68-3336-11f1-969c-2d2c0ad2109e')
  retrieving field x_component_of_vertex (mode = RetrievalType.FIELD)
  retrieving field y_component_of_vertex (mode = RetrievalType.FIELD)
  retrieving field x_coordinate_of_edge_center (mode = RetrievalType.FIELD)
  retrieving field y_coordinate_of_edge_center (mode = RetrievalType.FIELD)
  retrieving field edge_orientation (mode = RetrievalType.FIELD)
-Inferred structured remap sizes from /home/raphael/Documents/Studium/Msc_thesis/grid-generator/parallelogram_grid.nc: StructuredRemapSizes(nx=13, ny=16, max_i=17, max_j=14, vertex_size=238, edge_size_padded=714, cell_size=416, end_i=15, end_j=12, lateral=2, start_i=2, start_j=2)
- 2026-04-16 11:36:04,358 - factory.py: exchange            : DEBUG   provider for fields dict_keys(['x_component_of_edge_tangential_unit_vector', 'y_component_of_edge_tangential_unit_vector', 'z_component_of_edge_tangential_unit_vector', 'eastward_component_of_edge_tangent', 'northward_component_of_edge_tangent', 'x_component_of_edge_normal_unit_vector', 'y_component_of_edge_normal_unit_vector', 'z_component_of_edge_normal_unit_vector', 'eastward_component_of_edge_normal', 'northward_component_of_edge_normal']) needs exchange False
- 2026-04-16 11:36:04,360 - factory.py: exchange            : DEBUG   provider for fields dict_keys(['eastward_component_of_edge_normal_on_vertex', 'northward_component_of_edge_normal_on_vertex']) needs exchange True
- 2026-04-16 11:36:04,360 - factory.py: exchange            : DEBUG   preparing exchange of eastward_component_of_edge_normal_on_vertex - ⟨Domain(Edge[horizontal]=(0:653), E2C2V[local]=(0:4)) → DType(scalar_type=<class 'numpy.float64'>, tensor_shape=())⟩
- 2026-04-16 11:36:04,360 - factory.py: exchange            : DEBUG   exchanged buffer for eastward_component_of_edge_normal_on_vertex
- 2026-04-16 11:36:04,360 - factory.py: exchange            : DEBUG   preparing exchange of northward_component_of_edge_normal_on_vertex - ⟨Domain(Edge[horizontal]=(0:653), E2C2V[local]=(0:4)) → DType(scalar_type=<class 'numpy.float64'>, tensor_shape=())⟩
- 2026-04-16 11:36:04,360 - factory.py: exchange            : DEBUG   exchanged buffer for northward_component_of_edge_normal_on_vertex
+ 2026-04-16 17:31:20,610 - factory.py: exchange            : DEBUG   provider for fields dict_keys(['x_component_of_edge_tangential_unit_vector', 'y_component_of_edge_tangential_unit_vector', 'z_component_of_edge_tangential_unit_vector', 'eastward_component_of_edge_tangent', 'northward_component_of_edge_tangent', 'x_component_of_edge_normal_unit_vector', 'y_component_of_edge_normal_unit_vector', 'z_component_of_edge_normal_unit_vector', 'eastward_component_of_edge_normal', 'northward_component_of_edge_normal']) needs exchange False
+ 2026-04-16 17:31:20,611 - factory.py: exchange            : DEBUG   provider for fields dict_keys(['eastward_component_of_edge_normal_on_vertex', 'northward_component_of_edge_normal_on_vertex']) needs exchange True
+ 2026-04-16 17:31:20,612 - factory.py: exchange            : DEBUG   preparing exchange of eastward_component_of_edge_normal_on_vertex - ⟨Domain(Edge[horizontal]=(0:653), E2C2V[local]=(0:4)) → DType(scalar_type=<class 'numpy.float64'>, tensor_shape=())⟩
+ 2026-04-16 17:31:20,612 - factory.py: exchange            : DEBUG   exchanged buffer for eastward_component_of_edge_normal_on_vertex
+ 2026-04-16 17:31:20,612 - factory.py: exchange            : DEBUG   preparing exchange of northward_component_of_edge_normal_on_vertex - ⟨Domain(Edge[horizontal]=(0:653), E2C2V[local]=(0:4)) → DType(scalar_type=<class 'numpy.float64'>, tensor_shape=())⟩
+ 2026-04-16 17:31:20,612 - factory.py: exchange            : DEBUG   exchanged buffer for northward_component_of_edge_normal_on_vertex
  retrieving field northward_component_of_edge_normal_on_vertex (mode = RetrievalType.FIELD)
  retrieving field eastward_component_of_edge_tangent_on_vertex (mode = RetrievalType.FIELD)
- 2026-04-16 11:36:04,367 - factory.py: exchange            : DEBUG   provider for fields dict_keys(['eastward_component_of_edge_tangent_on_vertex', 'northward_component_of_edge_tangent_on_vertex']) needs exchange True
- 2026-04-16 11:36:04,368 - factory.py: exchange            : DEBUG   preparing exchange of eastward_component_of_edge_tangent_on_vertex - ⟨Domain(Edge[horizontal]=(0:653), E2C2V[local]=(0:4)) → DType(scalar_type=<class 'numpy.float64'>, tensor_shape=())⟩
- 2026-04-16 11:36:04,368 - factory.py: exchange            : DEBUG   exchanged buffer for eastward_component_of_edge_tangent_on_vertex
- 2026-04-16 11:36:04,368 - factory.py: exchange            : DEBUG   preparing exchange of northward_component_of_edge_tangent_on_vertex - ⟨Domain(Edge[horizontal]=(0:653), E2C2V[local]=(0:4)) → DType(scalar_type=<class 'numpy.float64'>, tensor_shape=())⟩
- 2026-04-16 11:36:04,368 - factory.py: exchange            : DEBUG   exchanged buffer for northward_component_of_edge_tangent_on_vertex
+ 2026-04-16 17:31:20,613 - factory.py: exchange            : DEBUG   provider for fields dict_keys(['eastward_component_of_edge_tangent_on_vertex', 'northward_component_of_edge_tangent_on_vertex']) needs exchange True
+ 2026-04-16 17:31:20,613 - factory.py: exchange            : DEBUG   preparing exchange of eastward_component_of_edge_tangent_on_vertex - ⟨Domain(Edge[horizontal]=(0:653), E2C2V[local]=(0:4)) → DType(scalar_type=<class 'numpy.float64'>, tensor_shape=())⟩
+ 2026-04-16 17:31:20,613 - factory.py: exchange            : DEBUG   exchanged buffer for eastward_component_of_edge_tangent_on_vertex
+ 2026-04-16 17:31:20,614 - factory.py: exchange            : DEBUG   preparing exchange of northward_component_of_edge_tangent_on_vertex - ⟨Domain(Edge[horizontal]=(0:653), E2C2V[local]=(0:4)) → DType(scalar_type=<class 'numpy.float64'>, tensor_shape=())⟩
+ 2026-04-16 17:31:20,614 - factory.py: exchange            : DEBUG   exchanged buffer for northward_component_of_edge_tangent_on_vertex
  retrieving field northward_component_of_edge_normal_on_vertex (mode = RetrievalType.FIELD)
  retrieving field eastward_component_of_edge_normal_on_cell (mode = RetrievalType.FIELD)
- 2026-04-16 11:36:04,369 - factory.py: exchange            : DEBUG   provider for fields dict_keys(['eastward_component_of_edge_normal_on_cell', 'northward_component_of_edge_normal_on_cell']) needs exchange True
- 2026-04-16 11:36:04,369 - factory.py: exchange            : DEBUG   preparing exchange of eastward_component_of_edge_normal_on_cell - ⟨Domain(Edge[horizontal]=(0:653), E2C[local]=(0:2)) → DType(scalar_type=<class 'numpy.float64'>, tensor_shape=())⟩
- 2026-04-16 11:36:04,369 - factory.py: exchange            : DEBUG   exchanged buffer for eastward_component_of_edge_normal_on_cell
- 2026-04-16 11:36:04,369 - factory.py: exchange            : DEBUG   preparing exchange of northward_component_of_edge_normal_on_cell - ⟨Domain(Edge[horizontal]=(0:653), E2C[local]=(0:2)) → DType(scalar_type=<class 'numpy.float64'>, tensor_shape=())⟩
- 2026-04-16 11:36:04,369 - factory.py: exchange            : DEBUG   exchanged buffer for northward_component_of_edge_normal_on_cell
+ 2026-04-16 17:31:20,615 - factory.py: exchange            : DEBUG   provider for fields dict_keys(['eastward_component_of_edge_normal_on_cell', 'northward_component_of_edge_normal_on_cell']) needs exchange True
+ 2026-04-16 17:31:20,615 - factory.py: exchange            : DEBUG   preparing exchange of eastward_component_of_edge_normal_on_cell - ⟨Domain(Edge[horizontal]=(0:653), E2C[local]=(0:2)) → DType(scalar_type=<class 'numpy.float64'>, tensor_shape=())⟩
+ 2026-04-16 17:31:20,615 - factory.py: exchange            : DEBUG   exchanged buffer for eastward_component_of_edge_normal_on_cell
+ 2026-04-16 17:31:20,615 - factory.py: exchange            : DEBUG   preparing exchange of northward_component_of_edge_normal_on_cell - ⟨Domain(Edge[horizontal]=(0:653), E2C[local]=(0:2)) → DType(scalar_type=<class 'numpy.float64'>, tensor_shape=())⟩
+ 2026-04-16 17:31:20,615 - factory.py: exchange            : DEBUG   exchanged buffer for northward_component_of_edge_normal_on_cell
  retrieving field eastward_component_of_edge_tangent_on_cell (mode = RetrievalType.FIELD)
- 2026-04-16 11:36:04,370 - factory.py: exchange            : DEBUG   provider for fields dict_keys(['eastward_component_of_edge_tangent_on_cell', 'northward_component_of_edge_tangent_on_cell']) needs exchange True
- 2026-04-16 11:36:04,370 - factory.py: exchange            : DEBUG   preparing exchange of eastward_component_of_edge_tangent_on_cell - ⟨Domain(Edge[horizontal]=(0:653), E2C[local]=(0:2)) → DType(scalar_type=<class 'numpy.float64'>, tensor_shape=())⟩
- 2026-04-16 11:36:04,370 - factory.py: exchange            : DEBUG   exchanged buffer for eastward_component_of_edge_tangent_on_cell
- 2026-04-16 11:36:04,370 - factory.py: exchange            : DEBUG   preparing exchange of northward_component_of_edge_tangent_on_cell - ⟨Domain(Edge[horizontal]=(0:653), E2C[local]=(0:2)) → DType(scalar_type=<class 'numpy.float64'>, tensor_shape=())⟩
- 2026-04-16 11:36:04,370 - factory.py: exchange            : DEBUG   exchanged buffer for northward_component_of_edge_tangent_on_cell
+ 2026-04-16 17:31:20,616 - factory.py: exchange            : DEBUG   provider for fields dict_keys(['eastward_component_of_edge_tangent_on_cell', 'northward_component_of_edge_tangent_on_cell']) needs exchange True
+ 2026-04-16 17:31:20,616 - factory.py: exchange            : DEBUG   preparing exchange of eastward_component_of_edge_tangent_on_cell - ⟨Domain(Edge[horizontal]=(0:653), E2C[local]=(0:2)) → DType(scalar_type=<class 'numpy.float64'>, tensor_shape=())⟩
+ 2026-04-16 17:31:20,616 - factory.py: exchange            : DEBUG   exchanged buffer for eastward_component_of_edge_tangent_on_cell
+ 2026-04-16 17:31:20,620 - factory.py: exchange            : DEBUG   preparing exchange of northward_component_of_edge_tangent_on_cell - ⟨Domain(Edge[horizontal]=(0:653), E2C[local]=(0:2)) → DType(scalar_type=<class 'numpy.float64'>, tensor_shape=())⟩
+ 2026-04-16 17:31:20,623 - factory.py: exchange            : DEBUG   exchanged buffer for northward_component_of_edge_tangent_on_cell
  retrieving field northward_component_of_edge_normal_on_cell (mode = RetrievalType.FIELD)
  retrieving field northward_component_of_edge_tangent_on_cell (mode = RetrievalType.FIELD)
  retrieving field edge_area (mode = RetrievalType.FIELD)
  retrieving field edge_area (mode = RetrievalType.METADATA)
- 2026-04-16 11:36:04,375 - factory.py: _compute            : DEBUG    getting dependencies dict_values(['edge_owner_mask', 'edge_length', 'length_of_dual_edge']) from GridGeometry for geometry_type=CARTESIAN (grid='60deab68-3336-11f1-969c-2d2c0ad2109e')
+ 2026-04-16 17:31:20,624 - factory.py: _compute            : DEBUG    getting dependencies dict_values(['edge_owner_mask', 'edge_length', 'length_of_dual_edge']) from GridGeometry for geometry_type=CARTESIAN (grid='60deab68-3336-11f1-969c-2d2c0ad2109e')
  retrieving field edge_owner_mask (mode = RetrievalType.FIELD)
  retrieving field edge_length (mode = RetrievalType.FIELD)
  retrieving field length_of_dual_edge (mode = RetrievalType.FIELD)
-Inferred structured remap sizes from /home/raphael/Documents/Studium/Msc_thesis/grid-generator/parallelogram_grid.nc: StructuredRemapSizes(nx=13, ny=16, max_i=17, max_j=14, vertex_size=238, edge_size_padded=714, cell_size=416, end_i=15, end_j=12, lateral=2, start_i=2, start_j=2)
- 2026-04-16 11:36:07,794 - factory.py: exchange            : DEBUG   provider for fields dict_keys(['edge_area']) needs exchange True
- 2026-04-16 11:36:07,794 - factory.py: exchange            : DEBUG   preparing exchange of edge_area - ⟨Domain(Edge[horizontal]=(0:653)) → DType(scalar_type=<class 'numpy.float64'>, tensor_shape=())⟩
- 2026-04-16 11:36:07,794 - factory.py: exchange            : DEBUG   exchanged buffer for edge_area
+ 2026-04-16 17:31:22,733 - factory.py: exchange            : DEBUG   provider for fields dict_keys(['edge_area']) needs exchange True
+ 2026-04-16 17:31:22,733 - factory.py: exchange            : DEBUG   preparing exchange of edge_area - ⟨Domain(Edge[horizontal]=(0:653)) → DType(scalar_type=<class 'numpy.float64'>, tensor_shape=())⟩
+ 2026-04-16 17:31:22,733 - factory.py: exchange            : DEBUG   exchanged buffer for edge_area
  retrieving field coriolis_parameter (mode = RetrievalType.FIELD)
  retrieving field grid_latitude_of_edge_midpoint (mode = RetrievalType.FIELD)
  retrieving field grid_longitude_of_edge_midpoint (mode = RetrievalType.FIELD)
@@ -722,17 +718,17 @@ computing field mean_dual_edge_length
  retrieving field rbf_scale_vertex (mode = RetrievalType.FIELD)
  retrieving field rbf_interpolation_coefficient_vertex_2 (mode = RetrievalType.FIELD)
  retrieving field geometrical_factor_for_divergence (mode = RetrievalType.FIELD)
- 2026-04-16 11:36:07,815 - factory.py: __call__            : DEBUG   computing fields  dict_keys(['geometrical_factor_for_divergence'])
+ 2026-04-16 17:31:22,761 - factory.py: __call__            : DEBUG   computing fields  dict_keys(['geometrical_factor_for_divergence'])
 computing compute_geofac_div: compute backend is: embedded, target backend is: run_gtfn_cpu_cached
  retrieving field geometrical_factor_for_divergence (mode = RetrievalType.METADATA)
- 2026-04-16 11:36:07,816 - factory.py: _compute            : DEBUG   transferring dependencies to compute backend: dict_keys(['primal_edge_length', 'edge_orientation', 'area'])
+ 2026-04-16 17:31:22,761 - factory.py: _compute            : DEBUG   transferring dependencies to compute backend: dict_keys(['primal_edge_length', 'edge_orientation', 'area'])
  retrieving field edge_length (mode = RetrievalType.FIELD)
  retrieving field orientation_of_normal_to_cell_edges (mode = RetrievalType.FIELD)
  retrieving field cell_area (mode = RetrievalType.FIELD)
- 2026-04-16 11:36:07,819 - factory.py: _compute            : DEBUG   transferring result geometrical_factor_for_divergence to target backend: run_gtfn_cpu_cached
- 2026-04-16 11:36:07,819 - factory.py: exchange            : DEBUG   provider for fields dict_keys(['geometrical_factor_for_divergence']) needs exchange True
- 2026-04-16 11:36:07,819 - factory.py: exchange            : DEBUG   preparing exchange of geometrical_factor_for_divergence - ⟨Domain(Cell[horizontal]=(0:416), C2E[local]=(0:3)) → DType(scalar_type=<class 'numpy.float64'>, tensor_shape=())⟩
- 2026-04-16 11:36:07,819 - factory.py: exchange            : DEBUG   exchanged buffer for geometrical_factor_for_divergence
+ 2026-04-16 17:31:22,765 - factory.py: _compute            : DEBUG   transferring result geometrical_factor_for_divergence to target backend: run_gtfn_cpu_cached
+ 2026-04-16 17:31:22,766 - factory.py: exchange            : DEBUG   provider for fields dict_keys(['geometrical_factor_for_divergence']) needs exchange True
+ 2026-04-16 17:31:22,766 - factory.py: exchange            : DEBUG   preparing exchange of geometrical_factor_for_divergence - ⟨Domain(Cell[horizontal]=(0:416), C2E[local]=(0:3)) → DType(scalar_type=<class 'numpy.float64'>, tensor_shape=())⟩
+ 2026-04-16 17:31:22,766 - factory.py: exchange            : DEBUG   exchanged buffer for geometrical_factor_for_divergence
  retrieving field geometrical_factor_for_nabla_2_scalar (mode = RetrievalType.FIELD)
 computing field geometrical_factor_for_nabla_2_scalar
  retrieving field length_of_dual_edge (mode = RetrievalType.FIELD)
@@ -761,21 +757,20 @@ computing field interpolation_coefficient_from_cell_to_edge
  retrieving field geometrical_factor_for_green_gauss_gradient_y (mode = RetrievalType.FIELD)
  retrieving field nudging_coefficients_for_edges (mode = RetrievalType.FIELD)
  retrieving field nudging_coefficients_for_edges (mode = RetrievalType.METADATA)
- 2026-04-16 11:36:07,831 - factory.py: _compute            : DEBUG    getting dependencies dict_values(['refinement_control_at_edges']) from <icon4py.model.common.states.factory.CompositeSource object at 0x77c40e9f8fd0>
+ 2026-04-16 17:31:22,778 - factory.py: _compute            : DEBUG    getting dependencies dict_values(['refinement_control_at_edges']) from <icon4py.model.common.states.factory.CompositeSource object at 0x730538160250>
  retrieving field refinement_control_at_edges (mode = RetrievalType.FIELD)
-Inferred structured remap sizes from /home/raphael/Documents/Studium/Msc_thesis/grid-generator/parallelogram_grid.nc: StructuredRemapSizes(nx=13, ny=16, max_i=17, max_j=14, vertex_size=238, edge_size_padded=714, cell_size=416, end_i=15, end_j=12, lateral=2, start_i=2, start_j=2)
- 2026-04-16 11:36:12,334 - factory.py: exchange            : DEBUG   provider for fields dict_keys(['nudging_coefficients_for_edges']) needs exchange True
- 2026-04-16 11:36:12,334 - factory.py: exchange            : DEBUG   preparing exchange of nudging_coefficients_for_edges - ⟨Domain(Edge[horizontal]=(0:653)) → DType(scalar_type=<class 'numpy.float64'>, tensor_shape=())⟩
- 2026-04-16 11:36:12,334 - factory.py: exchange            : DEBUG   exchanged buffer for nudging_coefficients_for_edges
+ 2026-04-16 17:31:24,885 - factory.py: exchange            : DEBUG   provider for fields dict_keys(['nudging_coefficients_for_edges']) needs exchange True
+ 2026-04-16 17:31:24,885 - factory.py: exchange            : DEBUG   preparing exchange of nudging_coefficients_for_edges - ⟨Domain(Edge[horizontal]=(0:653)) → DType(scalar_type=<class 'numpy.float64'>, tensor_shape=())⟩
+ 2026-04-16 17:31:24,885 - factory.py: exchange            : DEBUG   exchanged buffer for nudging_coefficients_for_edges
 creating diffusion metric state
  retrieving field theta_ref_mc (mode = RetrievalType.FIELD)
  retrieving field theta_ref_mc (mode = RetrievalType.METADATA)
  retrieving field exner_ref_mc (mode = RetrievalType.METADATA)
  retrieving field rho_ref_mc (mode = RetrievalType.METADATA)
- 2026-04-16 11:36:12,335 - factory.py: _compute            : DEBUG    getting dependencies dict_values(['height']) from <icon4py.model.common.states.factory.CompositeSource object at 0x77c40e220760>
+ 2026-04-16 17:31:24,887 - factory.py: _compute            : DEBUG    getting dependencies dict_values(['height']) from <icon4py.model.common.states.factory.CompositeSource object at 0x730539c21a50>
  retrieving field height (mode = RetrievalType.FIELD)
  retrieving field height (mode = RetrievalType.METADATA)
- 2026-04-16 11:36:12,336 - factory.py: _compute            : DEBUG    getting dependencies dict_values(['vertical_coordinates_on_half_levels']) from <icon4py.model.common.states.factory.CompositeSource object at 0x77c40e220760>
+ 2026-04-16 17:31:24,887 - factory.py: _compute            : DEBUG    getting dependencies dict_values(['vertical_coordinates_on_half_levels']) from <icon4py.model.common.states.factory.CompositeSource object at 0x730539c21a50>
  retrieving field vertical_coordinates_on_half_levels (mode = RetrievalType.FIELD)
 computing field vertical_coordinates_on_half_levels
  retrieving field vct_a (mode = RetrievalType.FIELD)
@@ -786,16 +781,13 @@ computing field vertical_coordinates_on_half_levels
  retrieving field cell_area (mode = RetrievalType.FIELD)
  retrieving field geometrical_factor_for_nabla_2_scalar (mode = RetrievalType.FIELD)
  retrieving field geometrical_factor_for_nabla_2_scalar (mode = RetrievalType.FIELD)
-Inferred structured remap sizes from /home/raphael/Documents/Studium/Msc_thesis/grid-generator/parallelogram_grid.nc: StructuredRemapSizes(nx=13, ny=16, max_i=17, max_j=14, vertex_size=238, edge_size_padded=714, cell_size=416, end_i=15, end_j=12, lateral=2, start_i=2, start_j=2)
- 2026-04-16 11:36:15,820 - factory.py: exchange            : DEBUG   provider for fields dict_keys(['height']) needs exchange False
-Inferred structured remap sizes from /home/raphael/Documents/Studium/Msc_thesis/grid-generator/parallelogram_grid.nc: StructuredRemapSizes(nx=13, ny=16, max_i=17, max_j=14, vertex_size=238, edge_size_padded=714, cell_size=416, end_i=15, end_j=12, lateral=2, start_i=2, start_j=2)
- 2026-04-16 11:36:25,413 - factory.py: exchange            : DEBUG   provider for fields dict_keys(['theta_ref_mc', 'exner_ref_mc', 'rho_ref_mc']) needs exchange False
+ 2026-04-16 17:31:26,758 - factory.py: exchange            : DEBUG   provider for fields dict_keys(['height']) needs exchange False
+ 2026-04-16 17:31:30,343 - factory.py: exchange            : DEBUG   provider for fields dict_keys(['theta_ref_mc', 'exner_ref_mc', 'rho_ref_mc']) needs exchange False
  retrieving field wgtfac_c (mode = RetrievalType.FIELD)
  retrieving field wgtfac_c (mode = RetrievalType.METADATA)
- 2026-04-16 11:36:25,414 - factory.py: _compute            : DEBUG    getting dependencies dict_values(['vertical_coordinates_on_half_levels']) from <icon4py.model.common.states.factory.CompositeSource object at 0x77c40e220760>
+ 2026-04-16 17:31:30,344 - factory.py: _compute            : DEBUG    getting dependencies dict_values(['vertical_coordinates_on_half_levels']) from <icon4py.model.common.states.factory.CompositeSource object at 0x73053816bee0>
  retrieving field vertical_coordinates_on_half_levels (mode = RetrievalType.FIELD)
-Inferred structured remap sizes from /home/raphael/Documents/Studium/Msc_thesis/grid-generator/parallelogram_grid.nc: StructuredRemapSizes(nx=13, ny=16, max_i=17, max_j=14, vertex_size=238, edge_size_padded=714, cell_size=416, end_i=15, end_j=12, lateral=2, start_i=2, start_j=2)
- 2026-04-16 11:36:37,465 - factory.py: exchange            : DEBUG   provider for fields dict_keys(['wgtfac_c']) needs exchange False
+ 2026-04-16 17:31:32,382 - factory.py: exchange            : DEBUG   provider for fields dict_keys(['wgtfac_c']) needs exchange False
  retrieving field zd_intcoef (mode = RetrievalType.FIELD)
 computing field zd_intcoef
  retrieving field height (mode = RetrievalType.FIELD)
@@ -810,32 +802,29 @@ computing field max_nbhgt
  retrieving field maxslp_avg (mode = RetrievalType.FIELD)
  retrieving field maxslp_avg (mode = RetrievalType.METADATA)
  retrieving field maxhgtd_avg (mode = RetrievalType.METADATA)
- 2026-04-16 11:36:37,468 - factory.py: _compute            : DEBUG    getting dependencies dict_values(['maxslp', 'maxhgtd', 'bilinear_cell_average_weight']) from <icon4py.model.common.states.factory.CompositeSource object at 0x77c40e220760>
+ 2026-04-16 17:31:32,388 - factory.py: _compute            : DEBUG    getting dependencies dict_values(['maxslp', 'maxhgtd', 'bilinear_cell_average_weight']) from <icon4py.model.common.states.factory.CompositeSource object at 0x73053816bee0>
  retrieving field maxslp (mode = RetrievalType.FIELD)
  retrieving field maxslp (mode = RetrievalType.METADATA)
  retrieving field maxhgtd (mode = RetrievalType.METADATA)
- 2026-04-16 11:36:37,470 - factory.py: _compute            : DEBUG    getting dependencies dict_values(['ddxn_z_full', 'length_of_dual_edge']) from <icon4py.model.common.states.factory.CompositeSource object at 0x77c40e220760>
+ 2026-04-16 17:31:32,389 - factory.py: _compute            : DEBUG    getting dependencies dict_values(['ddxn_z_full', 'length_of_dual_edge']) from <icon4py.model.common.states.factory.CompositeSource object at 0x73053816bee0>
  retrieving field ddxn_z_full (mode = RetrievalType.FIELD)
  retrieving field ddxn_z_full (mode = RetrievalType.METADATA)
- 2026-04-16 11:36:37,470 - factory.py: _compute            : DEBUG    getting dependencies dict_values(['ddxn_z_half_e']) from <icon4py.model.common.states.factory.CompositeSource object at 0x77c40e220760>
+ 2026-04-16 17:31:32,389 - factory.py: _compute            : DEBUG    getting dependencies dict_values(['ddxn_z_half_e']) from <icon4py.model.common.states.factory.CompositeSource object at 0x73053816bee0>
  retrieving field ddxn_z_half_e (mode = RetrievalType.FIELD)
  retrieving field ddxn_z_half_e (mode = RetrievalType.METADATA)
- 2026-04-16 11:36:37,471 - factory.py: _compute            : DEBUG    getting dependencies dict_values(['vertical_coordinates_on_half_levels', 'inverse_of_length_of_dual_edge']) from <icon4py.model.common.states.factory.CompositeSource object at 0x77c40e220760>
+ 2026-04-16 17:31:32,390 - factory.py: _compute            : DEBUG    getting dependencies dict_values(['vertical_coordinates_on_half_levels', 'inverse_of_length_of_dual_edge']) from <icon4py.model.common.states.factory.CompositeSource object at 0x73053816bee0>
  retrieving field vertical_coordinates_on_half_levels (mode = RetrievalType.FIELD)
  retrieving field inverse_of_length_of_dual_edge (mode = RetrievalType.FIELD)
-Inferred structured remap sizes from /home/raphael/Documents/Studium/Msc_thesis/grid-generator/parallelogram_grid.nc: StructuredRemapSizes(nx=13, ny=16, max_i=17, max_j=14, vertex_size=238, edge_size_padded=714, cell_size=416, end_i=15, end_j=12, lateral=2, start_i=2, start_j=2)
- 2026-04-16 11:36:40,774 - factory.py: exchange            : DEBUG   provider for fields dict_keys(['ddxn_z_half_e']) needs exchange True
- 2026-04-16 11:36:40,774 - factory.py: exchange            : DEBUG   preparing exchange of ddxn_z_half_e - ⟨Domain(Edge[horizontal]=(0:653), K[vertical]=(0:36)) → DType(scalar_type=<class 'numpy.float64'>, tensor_shape=())⟩
- 2026-04-16 11:36:40,774 - factory.py: exchange            : DEBUG   exchanged buffer for ddxn_z_half_e
-Inferred structured remap sizes from /home/raphael/Documents/Studium/Msc_thesis/grid-generator/parallelogram_grid.nc: StructuredRemapSizes(nx=13, ny=16, max_i=17, max_j=14, vertex_size=238, edge_size_padded=714, cell_size=416, end_i=15, end_j=12, lateral=2, start_i=2, start_j=2)
- 2026-04-16 11:36:43,553 - factory.py: exchange            : DEBUG   provider for fields dict_keys(['ddxn_z_full']) needs exchange False
+ 2026-04-16 17:31:34,476 - factory.py: exchange            : DEBUG   provider for fields dict_keys(['ddxn_z_half_e']) needs exchange True
+ 2026-04-16 17:31:34,476 - factory.py: exchange            : DEBUG   preparing exchange of ddxn_z_half_e - ⟨Domain(Edge[horizontal]=(0:653), K[vertical]=(0:36)) → DType(scalar_type=<class 'numpy.float64'>, tensor_shape=())⟩
+ 2026-04-16 17:31:34,476 - factory.py: exchange            : DEBUG   exchanged buffer for ddxn_z_half_e
+ 2026-04-16 17:31:36,287 - factory.py: exchange            : DEBUG   provider for fields dict_keys(['ddxn_z_full']) needs exchange False
  retrieving field length_of_dual_edge (mode = RetrievalType.FIELD)
-Inferred structured remap sizes from /home/raphael/Documents/Studium/Msc_thesis/grid-generator/parallelogram_grid.nc: StructuredRemapSizes(nx=13, ny=16, max_i=17, max_j=14, vertex_size=238, edge_size_padded=714, cell_size=416, end_i=15, end_j=12, lateral=2, start_i=2, start_j=2)
- 2026-04-16 11:36:48,398 - factory.py: exchange            : DEBUG   provider for fields dict_keys(['maxslp', 'maxhgtd']) needs exchange True
- 2026-04-16 11:36:48,398 - factory.py: exchange            : DEBUG   preparing exchange of maxslp - ⟨Domain(Cell[horizontal]=(0:416), K[vertical]=(0:35)) → DType(scalar_type=<class 'numpy.float64'>, tensor_shape=())⟩
- 2026-04-16 11:36:48,398 - factory.py: exchange            : DEBUG   exchanged buffer for maxslp
- 2026-04-16 11:36:48,398 - factory.py: exchange            : DEBUG   preparing exchange of maxhgtd - ⟨Domain(Cell[horizontal]=(0:416), K[vertical]=(0:35)) → DType(scalar_type=<class 'numpy.float64'>, tensor_shape=())⟩
- 2026-04-16 11:36:48,399 - factory.py: exchange            : DEBUG   exchanged buffer for maxhgtd
+ 2026-04-16 17:31:39,060 - factory.py: exchange            : DEBUG   provider for fields dict_keys(['maxslp', 'maxhgtd']) needs exchange True
+ 2026-04-16 17:31:39,061 - factory.py: exchange            : DEBUG   preparing exchange of maxslp - ⟨Domain(Cell[horizontal]=(0:416), K[vertical]=(0:35)) → DType(scalar_type=<class 'numpy.float64'>, tensor_shape=())⟩
+ 2026-04-16 17:31:39,061 - factory.py: exchange            : DEBUG   exchanged buffer for maxslp
+ 2026-04-16 17:31:39,061 - factory.py: exchange            : DEBUG   preparing exchange of maxhgtd - ⟨Domain(Cell[horizontal]=(0:416), K[vertical]=(0:35)) → DType(scalar_type=<class 'numpy.float64'>, tensor_shape=())⟩
+ 2026-04-16 17:31:39,061 - factory.py: exchange            : DEBUG   exchanged buffer for maxhgtd
  retrieving field maxhgtd (mode = RetrievalType.FIELD)
  retrieving field bilinear_cell_average_weight (mode = RetrievalType.FIELD)
 computing field bilinear_cell_average_weight
@@ -843,12 +832,11 @@ computing field bilinear_cell_average_weight
  retrieving field cell_area (mode = RetrievalType.FIELD)
  retrieving field cell_owner_mask (mode = RetrievalType.FIELD)
  retrieving field cell_owner_mask (mode = RetrievalType.FIELD)
-Inferred structured remap sizes from /home/raphael/Documents/Studium/Msc_thesis/grid-generator/parallelogram_grid.nc: StructuredRemapSizes(nx=13, ny=16, max_i=17, max_j=14, vertex_size=238, edge_size_padded=714, cell_size=416, end_i=15, end_j=12, lateral=2, start_i=2, start_j=2)
- 2026-04-16 11:36:53,274 - factory.py: exchange            : DEBUG   provider for fields dict_keys(['maxslp_avg', 'maxhgtd_avg']) needs exchange True
- 2026-04-16 11:36:53,274 - factory.py: exchange            : DEBUG   preparing exchange of maxslp_avg - ⟨Domain(Cell[horizontal]=(0:416), K[vertical]=(0:35)) → DType(scalar_type=<class 'numpy.float64'>, tensor_shape=())⟩
- 2026-04-16 11:36:53,274 - factory.py: exchange            : DEBUG   exchanged buffer for maxslp_avg
- 2026-04-16 11:36:53,274 - factory.py: exchange            : DEBUG   preparing exchange of maxhgtd_avg - ⟨Domain(Cell[horizontal]=(0:416), K[vertical]=(0:35)) → DType(scalar_type=<class 'numpy.float64'>, tensor_shape=())⟩
- 2026-04-16 11:36:53,274 - factory.py: exchange            : DEBUG   exchanged buffer for maxhgtd_avg
+ 2026-04-16 17:31:42,133 - factory.py: exchange            : DEBUG   provider for fields dict_keys(['maxslp_avg', 'maxhgtd_avg']) needs exchange True
+ 2026-04-16 17:31:42,133 - factory.py: exchange            : DEBUG   preparing exchange of maxslp_avg - ⟨Domain(Cell[horizontal]=(0:416), K[vertical]=(0:35)) → DType(scalar_type=<class 'numpy.float64'>, tensor_shape=())⟩
+ 2026-04-16 17:31:42,133 - factory.py: exchange            : DEBUG   exchanged buffer for maxslp_avg
+ 2026-04-16 17:31:42,133 - factory.py: exchange            : DEBUG   preparing exchange of maxhgtd_avg - ⟨Domain(Cell[horizontal]=(0:416), K[vertical]=(0:35)) → DType(scalar_type=<class 'numpy.float64'>, tensor_shape=())⟩
+ 2026-04-16 17:31:42,133 - factory.py: exchange            : DEBUG   exchanged buffer for maxhgtd_avg
  retrieving field maxslp_avg (mode = RetrievalType.FIELD)
  retrieving field maxhgtd_avg (mode = RetrievalType.FIELD)
  retrieving field maxhgtd_avg (mode = RetrievalType.FIELD)
@@ -898,18 +886,18 @@ computing field geometrical_factor_for_gradient_of_divergence
  retrieving field edge_owner_mask (mode = RetrievalType.FIELD)
  retrieving field edge_owner_mask (mode = RetrievalType.FIELD)
  retrieving field geometrical_factor_for_curl (mode = RetrievalType.FIELD)
- 2026-04-16 11:36:53,312 - factory.py: __call__            : DEBUG   computing fields  dict_keys(['geometrical_factor_for_curl'])
+ 2026-04-16 17:31:42,165 - factory.py: __call__            : DEBUG   computing fields  dict_keys(['geometrical_factor_for_curl'])
 computing compute_geofac_rot: compute backend is: embedded, target backend is: run_gtfn_cpu_cached
  retrieving field geometrical_factor_for_curl (mode = RetrievalType.METADATA)
- 2026-04-16 11:36:53,313 - factory.py: _compute            : DEBUG   transferring dependencies to compute backend: dict_keys(['dual_edge_length', 'edge_orientation', 'dual_area', 'owner_mask'])
+ 2026-04-16 17:31:42,165 - factory.py: _compute            : DEBUG   transferring dependencies to compute backend: dict_keys(['dual_edge_length', 'edge_orientation', 'dual_area', 'owner_mask'])
  retrieving field length_of_dual_edge (mode = RetrievalType.FIELD)
  retrieving field orientation_of_edges_around_vertex (mode = RetrievalType.FIELD)
  retrieving field dual_area (mode = RetrievalType.FIELD)
  retrieving field vertex_owner_mask (mode = RetrievalType.FIELD)
- 2026-04-16 11:36:53,316 - factory.py: _compute            : DEBUG   transferring result geometrical_factor_for_curl to target backend: run_gtfn_cpu_cached
- 2026-04-16 11:36:53,316 - factory.py: exchange            : DEBUG   provider for fields dict_keys(['geometrical_factor_for_curl']) needs exchange True
- 2026-04-16 11:36:53,316 - factory.py: exchange            : DEBUG   preparing exchange of geometrical_factor_for_curl - ⟨Domain(Vertex[horizontal]=(0:238), V2E[local]=(0:6)) → DType(scalar_type=<class 'numpy.float64'>, tensor_shape=())⟩
- 2026-04-16 11:36:53,316 - factory.py: exchange            : DEBUG   exchanged buffer for geometrical_factor_for_curl
+ 2026-04-16 17:31:42,168 - factory.py: _compute            : DEBUG   transferring result geometrical_factor_for_curl to target backend: run_gtfn_cpu_cached
+ 2026-04-16 17:31:42,168 - factory.py: exchange            : DEBUG   provider for fields dict_keys(['geometrical_factor_for_curl']) needs exchange True
+ 2026-04-16 17:31:42,168 - factory.py: exchange            : DEBUG   preparing exchange of geometrical_factor_for_curl - ⟨Domain(Vertex[horizontal]=(0:238), V2E[local]=(0:6)) → DType(scalar_type=<class 'numpy.float64'>, tensor_shape=())⟩
+ 2026-04-16 17:31:42,168 - factory.py: exchange            : DEBUG   exchanged buffer for geometrical_factor_for_curl
  retrieving field pos_on_tplane_e_x (mode = RetrievalType.FIELD)
 computing field pos_on_tplane_e_x
  retrieving field length_of_dual_edge (mode = RetrievalType.FIELD)
@@ -955,23 +943,20 @@ computing field rbf_scale_edge
 creating solve nonhydro metric state
  retrieving field mask_prog_halo_c (mode = RetrievalType.FIELD)
  retrieving field mask_prog_halo_c (mode = RetrievalType.METADATA)
- 2026-04-16 11:36:53,342 - factory.py: _compute            : DEBUG    getting dependencies dict_values(['c_refin_ctrl']) from <icon4py.model.common.states.factory.CompositeSource object at 0x77c40e3957b0>
+ 2026-04-16 17:31:42,202 - factory.py: _compute            : DEBUG    getting dependencies dict_values(['c_refin_ctrl']) from <icon4py.model.common.states.factory.CompositeSource object at 0x73053afc76d0>
  retrieving field c_refin_ctrl (mode = RetrievalType.FIELD)
-Inferred structured remap sizes from /home/raphael/Documents/Studium/Msc_thesis/grid-generator/parallelogram_grid.nc: StructuredRemapSizes(nx=13, ny=16, max_i=17, max_j=14, vertex_size=238, edge_size_padded=714, cell_size=416, end_i=15, end_j=12, lateral=2, start_i=2, start_j=2)
- 2026-04-16 11:36:56,240 - factory.py: exchange            : DEBUG   provider for fields dict_keys(['mask_prog_halo_c']) needs exchange False
+ 2026-04-16 17:31:44,053 - factory.py: exchange            : DEBUG   provider for fields dict_keys(['mask_prog_halo_c']) needs exchange False
  retrieving field rayleigh_w (mode = RetrievalType.FIELD)
  retrieving field rayleigh_w (mode = RetrievalType.METADATA)
- 2026-04-16 11:36:56,240 - factory.py: _compute            : DEBUG    getting dependencies dict_values(['vct_a']) from <icon4py.model.common.states.factory.CompositeSource object at 0x77c40e3957b0>
+ 2026-04-16 17:31:44,054 - factory.py: _compute            : DEBUG    getting dependencies dict_values(['vct_a']) from <icon4py.model.common.states.factory.CompositeSource object at 0x73053afc76d0>
  retrieving field vct_a (mode = RetrievalType.FIELD)
-Inferred structured remap sizes from /home/raphael/Documents/Studium/Msc_thesis/grid-generator/parallelogram_grid.nc: StructuredRemapSizes(nx=13, ny=16, max_i=17, max_j=14, vertex_size=238, edge_size_padded=714, cell_size=416, end_i=15, end_j=12, lateral=2, start_i=2, start_j=2)
- 2026-04-16 11:37:01,394 - factory.py: exchange            : DEBUG   provider for fields dict_keys(['rayleigh_w']) needs exchange False
+ 2026-04-16 17:31:46,379 - factory.py: exchange            : DEBUG   provider for fields dict_keys(['rayleigh_w']) needs exchange False
  retrieving field exner_exfac (mode = RetrievalType.FIELD)
  retrieving field exner_exfac (mode = RetrievalType.METADATA)
- 2026-04-16 11:37:01,394 - factory.py: _compute            : DEBUG    getting dependencies dict_values(['maxslp', 'maxhgtd']) from <icon4py.model.common.states.factory.CompositeSource object at 0x77c40e3957b0>
+ 2026-04-16 17:31:46,380 - factory.py: _compute            : DEBUG    getting dependencies dict_values(['maxslp', 'maxhgtd']) from <icon4py.model.common.states.factory.CompositeSource object at 0x73053afc76d0>
  retrieving field maxslp (mode = RetrievalType.FIELD)
  retrieving field maxhgtd (mode = RetrievalType.FIELD)
-Inferred structured remap sizes from /home/raphael/Documents/Studium/Msc_thesis/grid-generator/parallelogram_grid.nc: StructuredRemapSizes(nx=13, ny=16, max_i=17, max_j=14, vertex_size=238, edge_size_padded=714, cell_size=416, end_i=15, end_j=12, lateral=2, start_i=2, start_j=2)
- 2026-04-16 11:37:06,993 - factory.py: exchange            : DEBUG   provider for fields dict_keys(['exner_exfac']) needs exchange False
+ 2026-04-16 17:31:49,076 - factory.py: exchange            : DEBUG   provider for fields dict_keys(['exner_exfac']) needs exchange False
  retrieving field exner_ref_mc (mode = RetrievalType.FIELD)
  retrieving field wgtfac_c (mode = RetrievalType.FIELD)
  retrieving field weighting_factor_for_quadratic_interpolation_to_cell_surface (mode = RetrievalType.FIELD)
@@ -981,15 +966,14 @@ computing field weighting_factor_for_quadratic_interpolation_to_cell_surface
  retrieving field inverse_of_functional_determinant_of_metrics_on_full_levels (mode = RetrievalType.FIELD)
  retrieving field functional_determinant_of_metrics_on_full_levels (mode = RetrievalType.METADATA)
  retrieving field inverse_of_functional_determinant_of_metrics_on_full_levels (mode = RetrievalType.METADATA)
- 2026-04-16 11:37:06,995 - factory.py: _compute            : DEBUG    getting dependencies dict_values(['vertical_coordinates_on_half_levels']) from <icon4py.model.common.states.factory.CompositeSource object at 0x77c40e3957b0>
+ 2026-04-16 17:31:49,079 - factory.py: _compute            : DEBUG    getting dependencies dict_values(['vertical_coordinates_on_half_levels']) from <icon4py.model.common.states.factory.CompositeSource object at 0x73053afc76d0>
  retrieving field vertical_coordinates_on_half_levels (mode = RetrievalType.FIELD)
-Inferred structured remap sizes from /home/raphael/Documents/Studium/Msc_thesis/grid-generator/parallelogram_grid.nc: StructuredRemapSizes(nx=13, ny=16, max_i=17, max_j=14, vertex_size=238, edge_size_padded=714, cell_size=416, end_i=15, end_j=12, lateral=2, start_i=2, start_j=2)
- 2026-04-16 11:37:10,321 - factory.py: exchange            : DEBUG   provider for fields dict_keys(['functional_determinant_of_metrics_on_full_levels', 'inverse_of_functional_determinant_of_metrics_on_full_levels']) needs exchange False
+ 2026-04-16 17:31:51,027 - factory.py: exchange            : DEBUG   provider for fields dict_keys(['functional_determinant_of_metrics_on_full_levels', 'inverse_of_functional_determinant_of_metrics_on_full_levels']) needs exchange False
  retrieving field rho_ref_mc (mode = RetrievalType.FIELD)
  retrieving field theta_ref_mc (mode = RetrievalType.FIELD)
  retrieving field explicitness_weight_for_exner_and_w_in_vertical_dycore_solver (mode = RetrievalType.FIELD)
  retrieving field explicitness_weight_for_exner_and_w_in_vertical_dycore_solver (mode = RetrievalType.METADATA)
- 2026-04-16 11:37:10,321 - factory.py: _compute            : DEBUG    getting dependencies dict_values(['implicitness_weight_for_exner_and_w_in_vertical_dycore_solver']) from <icon4py.model.common.states.factory.CompositeSource object at 0x77c40e3957b0>
+ 2026-04-16 17:31:51,028 - factory.py: _compute            : DEBUG    getting dependencies dict_values(['implicitness_weight_for_exner_and_w_in_vertical_dycore_solver']) from <icon4py.model.common.states.factory.CompositeSource object at 0x73053afc76d0>
  retrieving field implicitness_weight_for_exner_and_w_in_vertical_dycore_solver (mode = RetrievalType.FIELD)
 computing field implicitness_weight_for_exner_and_w_in_vertical_dycore_solver
  retrieving field vct_a (mode = RetrievalType.FIELD)
@@ -1000,58 +984,52 @@ computing field implicitness_weight_for_exner_and_w_in_vertical_dycore_solver
  retrieving field ddxn_z_half_e (mode = RetrievalType.FIELD)
  retrieving field ddxt_z_half_e (mode = RetrievalType.FIELD)
  retrieving field ddxt_z_half_e (mode = RetrievalType.METADATA)
- 2026-04-16 11:37:10,323 - factory.py: _compute            : DEBUG    getting dependencies dict_values(['vertical_coordinates_on_half_levels', 'cell_to_vertex_interpolation_factor_by_area_weighting', 'inverse_of_edge_length', 'edge_orientation']) from <icon4py.model.common.states.factory.CompositeSource object at 0x77c40e3957b0>
+ 2026-04-16 17:31:51,030 - factory.py: _compute            : DEBUG    getting dependencies dict_values(['vertical_coordinates_on_half_levels', 'cell_to_vertex_interpolation_factor_by_area_weighting', 'inverse_of_edge_length', 'edge_orientation']) from <icon4py.model.common.states.factory.CompositeSource object at 0x73053afc76d0>
  retrieving field vertical_coordinates_on_half_levels (mode = RetrievalType.FIELD)
  retrieving field cell_to_vertex_interpolation_factor_by_area_weighting (mode = RetrievalType.FIELD)
  retrieving field inverse_of_edge_length (mode = RetrievalType.FIELD)
  retrieving field edge_orientation (mode = RetrievalType.FIELD)
-Inferred structured remap sizes from /home/raphael/Documents/Studium/Msc_thesis/grid-generator/parallelogram_grid.nc: StructuredRemapSizes(nx=13, ny=16, max_i=17, max_j=14, vertex_size=238, edge_size_padded=714, cell_size=416, end_i=15, end_j=12, lateral=2, start_i=2, start_j=2)
- 2026-04-16 11:37:17,961 - factory.py: exchange            : DEBUG   provider for fields dict_keys(['ddxt_z_half_e']) needs exchange True
- 2026-04-16 11:37:17,961 - factory.py: exchange            : DEBUG   preparing exchange of ddxt_z_half_e - ⟨Domain(Edge[horizontal]=(0:653), K[vertical]=(0:36)) → DType(scalar_type=<class 'numpy.float64'>, tensor_shape=())⟩
- 2026-04-16 11:37:17,961 - factory.py: exchange            : DEBUG   exchanged buffer for ddxt_z_half_e
+ 2026-04-16 17:31:54,552 - factory.py: exchange            : DEBUG   provider for fields dict_keys(['ddxt_z_half_e']) needs exchange True
+ 2026-04-16 17:31:54,552 - factory.py: exchange            : DEBUG   preparing exchange of ddxt_z_half_e - ⟨Domain(Edge[horizontal]=(0:653), K[vertical]=(0:36)) → DType(scalar_type=<class 'numpy.float64'>, tensor_shape=())⟩
+ 2026-04-16 17:31:54,552 - factory.py: exchange            : DEBUG   exchanged buffer for ddxt_z_half_e
  retrieving field ddxt_z_half_e (mode = RetrievalType.FIELD)
  retrieving field length_of_dual_edge (mode = RetrievalType.FIELD)
  retrieving field length_of_dual_edge (mode = RetrievalType.FIELD)
-Inferred structured remap sizes from /home/raphael/Documents/Studium/Msc_thesis/grid-generator/parallelogram_grid.nc: StructuredRemapSizes(nx=13, ny=16, max_i=17, max_j=14, vertex_size=238, edge_size_padded=714, cell_size=416, end_i=15, end_j=12, lateral=2, start_i=2, start_j=2)
- 2026-04-16 11:37:20,756 - factory.py: exchange            : DEBUG   provider for fields dict_keys(['explicitness_weight_for_exner_and_w_in_vertical_dycore_solver']) needs exchange False
+ 2026-04-16 17:31:56,155 - factory.py: exchange            : DEBUG   provider for fields dict_keys(['explicitness_weight_for_exner_and_w_in_vertical_dycore_solver']) needs exchange False
  retrieving field d_exner_dz_ref_ic (mode = RetrievalType.FIELD)
  retrieving field theta_ref_ic (mode = RetrievalType.METADATA)
  retrieving field d_exner_dz_ref_ic (mode = RetrievalType.METADATA)
- 2026-04-16 11:37:20,757 - factory.py: _compute            : DEBUG    getting dependencies dict_values(['vertical_coordinates_on_half_levels']) from <icon4py.model.common.states.factory.CompositeSource object at 0x77c40e3957b0>
+ 2026-04-16 17:31:56,157 - factory.py: _compute            : DEBUG    getting dependencies dict_values(['vertical_coordinates_on_half_levels']) from <icon4py.model.common.states.factory.CompositeSource object at 0x73053afc76d0>
  retrieving field vertical_coordinates_on_half_levels (mode = RetrievalType.FIELD)
-Inferred structured remap sizes from /home/raphael/Documents/Studium/Msc_thesis/grid-generator/parallelogram_grid.nc: StructuredRemapSizes(nx=13, ny=16, max_i=17, max_j=14, vertex_size=238, edge_size_padded=714, cell_size=416, end_i=15, end_j=12, lateral=2, start_i=2, start_j=2)
- 2026-04-16 11:37:30,315 - factory.py: exchange            : DEBUG   provider for fields dict_keys(['theta_ref_ic', 'd_exner_dz_ref_ic']) needs exchange False
+ 2026-04-16 17:31:59,836 - factory.py: exchange            : DEBUG   provider for fields dict_keys(['theta_ref_ic', 'd_exner_dz_ref_ic']) needs exchange False
  retrieving field functional_determinant_of_metrics_on_interface_levels (mode = RetrievalType.FIELD)
  retrieving field functional_determinant_of_metrics_on_interface_levels (mode = RetrievalType.METADATA)
- 2026-04-16 11:37:30,316 - factory.py: _compute            : DEBUG    getting dependencies dict_values(['vertical_coordinates_on_half_levels', 'height']) from <icon4py.model.common.states.factory.CompositeSource object at 0x77c40e3957b0>
+ 2026-04-16 17:31:59,837 - factory.py: _compute            : DEBUG    getting dependencies dict_values(['vertical_coordinates_on_half_levels', 'height']) from <icon4py.model.common.states.factory.CompositeSource object at 0x73053afc76d0>
  retrieving field vertical_coordinates_on_half_levels (mode = RetrievalType.FIELD)
  retrieving field height (mode = RetrievalType.FIELD)
-Inferred structured remap sizes from /home/raphael/Documents/Studium/Msc_thesis/grid-generator/parallelogram_grid.nc: StructuredRemapSizes(nx=13, ny=16, max_i=17, max_j=14, vertex_size=238, edge_size_padded=714, cell_size=416, end_i=15, end_j=12, lateral=2, start_i=2, start_j=2)
- 2026-04-16 11:37:41,537 - factory.py: exchange            : DEBUG   provider for fields dict_keys(['functional_determinant_of_metrics_on_interface_levels']) needs exchange False
+ 2026-04-16 17:32:02,218 - factory.py: exchange            : DEBUG   provider for fields dict_keys(['functional_determinant_of_metrics_on_interface_levels']) needs exchange False
  retrieving field theta_ref_ic (mode = RetrievalType.FIELD)
  retrieving field d2dexdz2_fac1_mc (mode = RetrievalType.FIELD)
  retrieving field d2dexdz2_fac1_mc (mode = RetrievalType.METADATA)
  retrieving field d2dexdz2_fac2_mc (mode = RetrievalType.METADATA)
- 2026-04-16 11:37:41,538 - factory.py: _compute            : DEBUG    getting dependencies dict_values(['theta_ref_mc', 'inverse_of_functional_determinant_of_metrics_on_full_levels', 'exner_ref_mc', 'height']) from <icon4py.model.common.states.factory.CompositeSource object at 0x77c40e3957b0>
+ 2026-04-16 17:32:02,219 - factory.py: _compute            : DEBUG    getting dependencies dict_values(['theta_ref_mc', 'inverse_of_functional_determinant_of_metrics_on_full_levels', 'exner_ref_mc', 'height']) from <icon4py.model.common.states.factory.CompositeSource object at 0x73053afc76d0>
  retrieving field theta_ref_mc (mode = RetrievalType.FIELD)
  retrieving field inverse_of_functional_determinant_of_metrics_on_full_levels (mode = RetrievalType.FIELD)
  retrieving field exner_ref_mc (mode = RetrievalType.FIELD)
  retrieving field height (mode = RetrievalType.FIELD)
-Inferred structured remap sizes from /home/raphael/Documents/Studium/Msc_thesis/grid-generator/parallelogram_grid.nc: StructuredRemapSizes(nx=13, ny=16, max_i=17, max_j=14, vertex_size=238, edge_size_padded=714, cell_size=416, end_i=15, end_j=12, lateral=2, start_i=2, start_j=2)
- 2026-04-16 11:37:50,927 - factory.py: exchange            : DEBUG   provider for fields dict_keys(['d2dexdz2_fac1_mc', 'd2dexdz2_fac2_mc']) needs exchange False
+ 2026-04-16 17:32:06,373 - factory.py: exchange            : DEBUG   provider for fields dict_keys(['d2dexdz2_fac1_mc', 'd2dexdz2_fac2_mc']) needs exchange False
  retrieving field d2dexdz2_fac1_mc (mode = RetrievalType.FIELD)
  retrieving field rho_ref_me (mode = RetrievalType.FIELD)
  retrieving field rho_ref_me (mode = RetrievalType.METADATA)
  retrieving field theta_ref_me (mode = RetrievalType.METADATA)
- 2026-04-16 11:37:50,928 - factory.py: _compute            : DEBUG    getting dependencies dict_values(['height', 'interpolation_coefficient_from_cell_to_edge']) from <icon4py.model.common.states.factory.CompositeSource object at 0x77c40e3957b0>
+ 2026-04-16 17:32:06,374 - factory.py: _compute            : DEBUG    getting dependencies dict_values(['height', 'interpolation_coefficient_from_cell_to_edge']) from <icon4py.model.common.states.factory.CompositeSource object at 0x73053afc76d0>
  retrieving field height (mode = RetrievalType.FIELD)
  retrieving field interpolation_coefficient_from_cell_to_edge (mode = RetrievalType.FIELD)
-Inferred structured remap sizes from /home/raphael/Documents/Studium/Msc_thesis/grid-generator/parallelogram_grid.nc: StructuredRemapSizes(nx=13, ny=16, max_i=17, max_j=14, vertex_size=238, edge_size_padded=714, cell_size=416, end_i=15, end_j=12, lateral=2, start_i=2, start_j=2)
- 2026-04-16 11:38:03,483 - factory.py: exchange            : DEBUG   provider for fields dict_keys(['rho_ref_me', 'theta_ref_me']) needs exchange True
- 2026-04-16 11:38:03,484 - factory.py: exchange            : DEBUG   preparing exchange of rho_ref_me - ⟨Domain(Edge[horizontal]=(0:653), K[vertical]=(0:35)) → DType(scalar_type=<class 'numpy.float64'>, tensor_shape=())⟩
- 2026-04-16 11:38:03,484 - factory.py: exchange            : DEBUG   exchanged buffer for rho_ref_me
- 2026-04-16 11:38:03,484 - factory.py: exchange            : DEBUG   preparing exchange of theta_ref_me - ⟨Domain(Edge[horizontal]=(0:653), K[vertical]=(0:35)) → DType(scalar_type=<class 'numpy.float64'>, tensor_shape=())⟩
- 2026-04-16 11:38:03,484 - factory.py: exchange            : DEBUG   exchanged buffer for theta_ref_me
+ 2026-04-16 17:32:10,176 - factory.py: exchange            : DEBUG   provider for fields dict_keys(['rho_ref_me', 'theta_ref_me']) needs exchange True
+ 2026-04-16 17:32:10,176 - factory.py: exchange            : DEBUG   preparing exchange of rho_ref_me - ⟨Domain(Edge[horizontal]=(0:653), K[vertical]=(0:35)) → DType(scalar_type=<class 'numpy.float64'>, tensor_shape=())⟩
+ 2026-04-16 17:32:10,176 - factory.py: exchange            : DEBUG   exchanged buffer for rho_ref_me
+ 2026-04-16 17:32:10,177 - factory.py: exchange            : DEBUG   preparing exchange of theta_ref_me - ⟨Domain(Edge[horizontal]=(0:653), K[vertical]=(0:35)) → DType(scalar_type=<class 'numpy.float64'>, tensor_shape=())⟩
+ 2026-04-16 17:32:10,177 - factory.py: exchange            : DEBUG   exchanged buffer for theta_ref_me
  retrieving field theta_ref_me (mode = RetrievalType.FIELD)
  retrieving field ddxn_z_full (mode = RetrievalType.FIELD)
  retrieving field zdiff_gradp (mode = RetrievalType.FIELD)
@@ -1084,7 +1062,7 @@ computing field nflat_gradp
  retrieving field e_owner_mask (mode = RetrievalType.FIELD)
  retrieving field distance_for_pressure_gradient_extrapolation (mode = RetrievalType.FIELD)
  retrieving field distance_for_pressure_gradient_extrapolation (mode = RetrievalType.METADATA)
- 2026-04-16 11:38:03,493 - factory.py: _compute            : DEBUG    getting dependencies dict_values(['height', 'interpolation_coefficient_from_cell_to_edge', 'topography', 'e_owner_mask', 'flat_idx_max', 'e_lev', 'k_lev']) from <icon4py.model.common.states.factory.CompositeSource object at 0x77c40e3957b0>
+ 2026-04-16 17:32:10,184 - factory.py: _compute            : DEBUG    getting dependencies dict_values(['height', 'interpolation_coefficient_from_cell_to_edge', 'topography', 'e_owner_mask', 'flat_idx_max', 'e_lev', 'k_lev']) from <icon4py.model.common.states.factory.CompositeSource object at 0x73053afc76d0>
  retrieving field height (mode = RetrievalType.FIELD)
  retrieving field interpolation_coefficient_from_cell_to_edge (mode = RetrievalType.FIELD)
  retrieving field topography (mode = RetrievalType.FIELD)
@@ -1092,31 +1070,28 @@ computing field nflat_gradp
  retrieving field flat_idx_max (mode = RetrievalType.FIELD)
  retrieving field e_lev (mode = RetrievalType.FIELD)
  retrieving field k_lev (mode = RetrievalType.FIELD)
-Inferred structured remap sizes from /home/raphael/Documents/Studium/Msc_thesis/grid-generator/parallelogram_grid.nc: StructuredRemapSizes(nx=13, ny=16, max_i=17, max_j=14, vertex_size=238, edge_size_padded=714, cell_size=416, end_i=15, end_j=12, lateral=2, start_i=2, start_j=2)
- 2026-04-16 11:38:12,804 - factory.py: exchange            : DEBUG   provider for fields dict_keys(['distance_for_pressure_gradient_extrapolation']) needs exchange False
+ 2026-04-16 17:32:14,096 - factory.py: exchange            : DEBUG   provider for fields dict_keys(['distance_for_pressure_gradient_extrapolation']) needs exchange False
  retrieving field functional_determinant_of_metrics_on_full_levels_on_edges (mode = RetrievalType.FIELD)
  retrieving field functional_determinant_of_metrics_on_full_levels_on_edges (mode = RetrievalType.METADATA)
- 2026-04-16 11:38:12,806 - factory.py: _compute            : DEBUG    getting dependencies dict_values(['functional_determinant_of_metrics_on_full_levels', 'interpolation_coefficient_from_cell_to_edge']) from <icon4py.model.common.states.factory.CompositeSource object at 0x77c40e3957b0>
+ 2026-04-16 17:32:14,097 - factory.py: _compute            : DEBUG    getting dependencies dict_values(['functional_determinant_of_metrics_on_full_levels', 'interpolation_coefficient_from_cell_to_edge']) from <icon4py.model.common.states.factory.CompositeSource object at 0x73053afc76d0>
  retrieving field functional_determinant_of_metrics_on_full_levels (mode = RetrievalType.FIELD)
  retrieving field interpolation_coefficient_from_cell_to_edge (mode = RetrievalType.FIELD)
-Inferred structured remap sizes from /home/raphael/Documents/Studium/Msc_thesis/grid-generator/parallelogram_grid.nc: StructuredRemapSizes(nx=13, ny=16, max_i=17, max_j=14, vertex_size=238, edge_size_padded=714, cell_size=416, end_i=15, end_j=12, lateral=2, start_i=2, start_j=2)
- 2026-04-16 11:38:17,627 - factory.py: exchange            : DEBUG   provider for fields dict_keys(['functional_determinant_of_metrics_on_full_levels_on_edges']) needs exchange True
- 2026-04-16 11:38:17,627 - factory.py: exchange            : DEBUG   preparing exchange of functional_determinant_of_metrics_on_full_levels_on_edges - ⟨Domain(Edge[horizontal]=(0:653), K[vertical]=(0:35)) → DType(scalar_type=<class 'numpy.float64'>, tensor_shape=())⟩
- 2026-04-16 11:38:17,627 - factory.py: exchange            : DEBUG   exchanged buffer for functional_determinant_of_metrics_on_full_levels_on_edges
+ 2026-04-16 17:32:16,343 - factory.py: exchange            : DEBUG   provider for fields dict_keys(['functional_determinant_of_metrics_on_full_levels_on_edges']) needs exchange True
+ 2026-04-16 17:32:16,343 - factory.py: exchange            : DEBUG   preparing exchange of functional_determinant_of_metrics_on_full_levels_on_edges - ⟨Domain(Edge[horizontal]=(0:653), K[vertical]=(0:35)) → DType(scalar_type=<class 'numpy.float64'>, tensor_shape=())⟩
+ 2026-04-16 17:32:16,343 - factory.py: exchange            : DEBUG   exchanged buffer for functional_determinant_of_metrics_on_full_levels_on_edges
  retrieving field ddxt_z_full (mode = RetrievalType.FIELD)
  retrieving field ddxt_z_full (mode = RetrievalType.METADATA)
- 2026-04-16 11:38:17,628 - factory.py: _compute            : DEBUG    getting dependencies dict_values(['ddxt_z_half_e']) from <icon4py.model.common.states.factory.CompositeSource object at 0x77c40e3957b0>
+ 2026-04-16 17:32:16,344 - factory.py: _compute            : DEBUG    getting dependencies dict_values(['ddxt_z_half_e']) from <icon4py.model.common.states.factory.CompositeSource object at 0x73053afc76d0>
  retrieving field ddxt_z_half_e (mode = RetrievalType.FIELD)
- 2026-04-16 11:38:17,660 - factory.py: exchange            : DEBUG   provider for fields dict_keys(['ddxt_z_full']) needs exchange True
- 2026-04-16 11:38:17,660 - factory.py: exchange            : DEBUG   preparing exchange of ddxt_z_full - ⟨Domain(Edge[horizontal]=(0:653), K[vertical]=(0:35)) → DType(scalar_type=<class 'numpy.float64'>, tensor_shape=())⟩
- 2026-04-16 11:38:17,660 - factory.py: exchange            : DEBUG   exchanged buffer for ddxt_z_full
+ 2026-04-16 17:32:16,362 - factory.py: exchange            : DEBUG   provider for fields dict_keys(['ddxt_z_full']) needs exchange True
+ 2026-04-16 17:32:16,362 - factory.py: exchange            : DEBUG   preparing exchange of ddxt_z_full - ⟨Domain(Edge[horizontal]=(0:653), K[vertical]=(0:35)) → DType(scalar_type=<class 'numpy.float64'>, tensor_shape=())⟩
+ 2026-04-16 17:32:16,362 - factory.py: exchange            : DEBUG   exchanged buffer for ddxt_z_full
  retrieving field wgtfac_e (mode = RetrievalType.FIELD)
  retrieving field wgtfac_e (mode = RetrievalType.METADATA)
- 2026-04-16 11:38:17,664 - factory.py: _compute            : DEBUG    getting dependencies dict_values(['wgtfac_c', 'interpolation_coefficient_from_cell_to_edge']) from <icon4py.model.common.states.factory.CompositeSource object at 0x77c40e3957b0>
+ 2026-04-16 17:32:16,362 - factory.py: _compute            : DEBUG    getting dependencies dict_values(['wgtfac_c', 'interpolation_coefficient_from_cell_to_edge']) from <icon4py.model.common.states.factory.CompositeSource object at 0x73053afc76d0>
  retrieving field wgtfac_c (mode = RetrievalType.FIELD)
  retrieving field interpolation_coefficient_from_cell_to_edge (mode = RetrievalType.FIELD)
-Inferred structured remap sizes from /home/raphael/Documents/Studium/Msc_thesis/grid-generator/parallelogram_grid.nc: StructuredRemapSizes(nx=13, ny=16, max_i=17, max_j=14, vertex_size=238, edge_size_padded=714, cell_size=416, end_i=15, end_j=12, lateral=2, start_i=2, start_j=2)
- 2026-04-16 11:38:22,209 - factory.py: exchange            : DEBUG   provider for fields dict_keys(['wgtfac_e']) needs exchange False
+ 2026-04-16 17:32:18,671 - factory.py: exchange            : DEBUG   provider for fields dict_keys(['wgtfac_e']) needs exchange False
  retrieving field weighting_factor_for_quadratic_interpolation_to_edge_center (mode = RetrievalType.FIELD)
 computing field weighting_factor_for_quadratic_interpolation_to_edge_center
  retrieving field vertical_coordinates_on_half_levels (mode = RetrievalType.FIELD)
@@ -1128,26 +1103,23 @@ computing field weighting_factor_for_quadratic_interpolation_to_edge_center
  retrieving field implicitness_weight_for_exner_and_w_in_vertical_dycore_solver (mode = RetrievalType.FIELD)
  retrieving field horizontal_mask_for_3d_divdamp (mode = RetrievalType.FIELD)
  retrieving field horizontal_mask_for_3d_divdamp (mode = RetrievalType.METADATA)
- 2026-04-16 11:38:22,216 - factory.py: _compute            : DEBUG    getting dependencies dict_values(['e_refin_ctrl']) from <icon4py.model.common.states.factory.CompositeSource object at 0x77c40e3957b0>
+ 2026-04-16 17:32:18,673 - factory.py: _compute            : DEBUG    getting dependencies dict_values(['e_refin_ctrl']) from <icon4py.model.common.states.factory.CompositeSource object at 0x73053afc76d0>
  retrieving field e_refin_ctrl (mode = RetrievalType.FIELD)
-Inferred structured remap sizes from /home/raphael/Documents/Studium/Msc_thesis/grid-generator/parallelogram_grid.nc: StructuredRemapSizes(nx=13, ny=16, max_i=17, max_j=14, vertex_size=238, edge_size_padded=714, cell_size=416, end_i=15, end_j=12, lateral=2, start_i=2, start_j=2)
- 2026-04-16 11:38:28,226 - factory.py: exchange            : DEBUG   provider for fields dict_keys(['horizontal_mask_for_3d_divdamp']) needs exchange True
- 2026-04-16 11:38:28,227 - factory.py: exchange            : DEBUG   preparing exchange of horizontal_mask_for_3d_divdamp - ⟨Domain(Edge[horizontal]=(0:653)) → DType(scalar_type=<class 'numpy.float64'>, tensor_shape=())⟩
- 2026-04-16 11:38:28,227 - factory.py: exchange            : DEBUG   exchanged buffer for horizontal_mask_for_3d_divdamp
+ 2026-04-16 17:32:20,809 - factory.py: exchange            : DEBUG   provider for fields dict_keys(['horizontal_mask_for_3d_divdamp']) needs exchange True
+ 2026-04-16 17:32:20,809 - factory.py: exchange            : DEBUG   preparing exchange of horizontal_mask_for_3d_divdamp - ⟨Domain(Edge[horizontal]=(0:653)) → DType(scalar_type=<class 'numpy.float64'>, tensor_shape=())⟩
+ 2026-04-16 17:32:20,809 - factory.py: exchange            : DEBUG   exchanged buffer for horizontal_mask_for_3d_divdamp
  retrieving field scaling_factor_for_3d_divergence_damping (mode = RetrievalType.FIELD)
  retrieving field scaling_factor_for_3d_divergence_damping (mode = RetrievalType.METADATA)
- 2026-04-16 11:38:28,227 - factory.py: _compute            : DEBUG    getting dependencies dict_values(['vct_a']) from <icon4py.model.common.states.factory.CompositeSource object at 0x77c40e3957b0>
+ 2026-04-16 17:32:20,810 - factory.py: _compute            : DEBUG    getting dependencies dict_values(['vct_a']) from <icon4py.model.common.states.factory.CompositeSource object at 0x73053afc76d0>
  retrieving field vct_a (mode = RetrievalType.FIELD)
-Inferred structured remap sizes from /home/raphael/Documents/Studium/Msc_thesis/grid-generator/parallelogram_grid.nc: StructuredRemapSizes(nx=13, ny=16, max_i=17, max_j=14, vertex_size=238, edge_size_padded=714, cell_size=416, end_i=15, end_j=12, lateral=2, start_i=2, start_j=2)
- 2026-04-16 11:38:34,117 - factory.py: exchange            : DEBUG   provider for fields dict_keys(['scaling_factor_for_3d_divergence_damping']) needs exchange False
+ 2026-04-16 17:32:23,202 - factory.py: exchange            : DEBUG   provider for fields dict_keys(['scaling_factor_for_3d_divergence_damping']) needs exchange False
  retrieving field coeff1_dwdz (mode = RetrievalType.FIELD)
  retrieving field coeff1_dwdz (mode = RetrievalType.METADATA)
  retrieving field coeff2_dwdz (mode = RetrievalType.METADATA)
- 2026-04-16 11:38:34,118 - factory.py: _compute            : DEBUG    getting dependencies dict_values(['functional_determinant_of_metrics_on_full_levels', 'vertical_coordinates_on_half_levels']) from <icon4py.model.common.states.factory.CompositeSource object at 0x77c40e3957b0>
+ 2026-04-16 17:32:23,203 - factory.py: _compute            : DEBUG    getting dependencies dict_values(['functional_determinant_of_metrics_on_full_levels', 'vertical_coordinates_on_half_levels']) from <icon4py.model.common.states.factory.CompositeSource object at 0x73053afc76d0>
  retrieving field functional_determinant_of_metrics_on_full_levels (mode = RetrievalType.FIELD)
  retrieving field vertical_coordinates_on_half_levels (mode = RetrievalType.FIELD)
-Inferred structured remap sizes from /home/raphael/Documents/Studium/Msc_thesis/grid-generator/parallelogram_grid.nc: StructuredRemapSizes(nx=13, ny=16, max_i=17, max_j=14, vertex_size=238, edge_size_padded=714, cell_size=416, end_i=15, end_j=12, lateral=2, start_i=2, start_j=2)
- 2026-04-16 11:38:40,245 - factory.py: exchange            : DEBUG   provider for fields dict_keys(['coeff1_dwdz', 'coeff2_dwdz']) needs exchange False
+ 2026-04-16 17:32:25,404 - factory.py: exchange            : DEBUG   provider for fields dict_keys(['coeff1_dwdz', 'coeff2_dwdz']) needs exchange False
  retrieving field coeff2_dwdz (mode = RetrievalType.FIELD)
  retrieving field coeff_gradekin (mode = RetrievalType.FIELD)
 computing field coeff_gradekin
@@ -1162,3 +1134,450 @@ Using non-custom backend 'run_gtfn_cpu_cached' for 'apply_diffusion_to_vn'.
 Using non-custom backend 'run_gtfn_cpu_cached' for 'apply_diffusion_to_w_and_compute_horizontal_gradients_for_turbulence'.
 Using non-custom backend 'run_gtfn_cpu_cached' for 'calculate_enhanced_diffusion_coefficients_for_grid_point_cold_pools'.
 Using non-custom backend 'run_gtfn_cpu_cached' for 'apply_diffusion_to_theta_and_exner'.
+Using non-custom backend 'run_gtfn_cpu_cached' for 'copy_field'.
+Using non-custom backend 'run_gtfn_cpu_cached' for 'scale_k'.
+Using non-custom backend 'run_gtfn_cpu_cached' for 'setup_fields_for_initial_step'.
+Using non-custom backend 'run_gtfn_cpu_cached' for 'init_diffusion_local_fields_for_regular_timestep'.
+Using non-custom backend 'run_gtfn_cpu_cached' for 'init_nabla2_factor_in_upper_damping_zone'.
+Using non-custom backend 'run_gtfn_cpu_cached' for 'compute_exner_from_rhotheta'.
+Using non-custom backend 'run_gtfn_cpu_cached' for 'update_theta_and_exner_in_halo'.
+Using non-custom backend 'run_gtfn_cpu_cached' for 'compute_hydrostatic_correction_term'.
+Using non-custom backend 'run_gtfn_cpu_cached' for 'compute_rho_theta_pgrad_and_update_vn'.
+Using non-custom backend 'run_gtfn_cpu_cached' for 'apply_divergence_damping_and_update_vn'.
+Using non-custom backend 'run_gtfn_cpu_cached' for 'compute_horizontal_velocity_quantities_and_fluxes'.
+Using non-custom backend 'run_gtfn_cpu_cached' for 'compute_averaged_vn_and_fluxes'.
+Using non-custom backend 'run_gtfn_cpu_cached' for 'vertically_implicit_solver_at_predictor_step'.
+Using non-custom backend 'run_gtfn_cpu_cached' for 'vertically_implicit_solver_at_corrector_step'.
+Using non-custom backend 'run_gtfn_cpu_cached' for 'compute_dwdz_for_divergence_damping'.
+Using non-custom backend 'run_gtfn_cpu_cached' for 'init_cell_kdim_field_with_zero_wp'.
+Using non-custom backend 'run_gtfn_cpu_cached' for 'update_mass_flux_weighted'.
+Using non-custom backend 'run_gtfn_cpu_cached' for 'compute_rayleigh_damping_factor'.
+Using non-custom backend 'run_gtfn_cpu_cached' for 'compute_perturbed_quantities_and_interpolation'.
+Using non-custom backend 'run_gtfn_cpu_cached' for 'compute_interpolation_and_nonhydro_buoy'.
+Using non-custom backend 'run_gtfn_cpu_cached' for 'stencils_61_62'.
+Using non-custom backend 'run_gtfn_cpu_cached' for 'en_smag_fac_for_zero_nshift'.
+Using non-custom backend 'run_gtfn_cpu_cached' for 'init_test_fields'.
+Using non-custom backend 'run_gtfn_cpu_cached' for 'compute_diagnostics_from_normal_wind'.
+Using non-custom backend 'run_gtfn_cpu_cached' for 'compute_advection_in_predictor_vertical_momentum'.
+Using non-custom backend 'run_gtfn_cpu_cached' for 'compute_advection_in_corrector_vertical_momentum'.
+Using non-custom backend 'run_gtfn_cpu_cached' for 'compute_advection_in_horizontal_momentum'.
+ retrieving field geometrical_factor_for_divergence (mode = RetrievalType.FIELD)
+ retrieving field rbf_interpolation_coefficient_edge (mode = RetrievalType.FIELD)
+ retrieving field pos_on_tplane_e_x (mode = RetrievalType.FIELD)
+ retrieving field pos_on_tplane_e_y (mode = RetrievalType.FIELD)
+ retrieving field lsq_interpolation_coefficient (mode = RetrievalType.FIELD)
+computing field lsq_interpolation_coefficient
+ retrieving field x_component_of_cell_center (mode = RetrievalType.FIELD)
+ retrieving field x_component_of_cell_center (mode = RetrievalType.FIELD)
+ retrieving field y_component_of_cell_center (mode = RetrievalType.FIELD)
+ retrieving field y_component_of_cell_center (mode = RetrievalType.FIELD)
+ retrieving field grid_latitude_of_cell_center (mode = RetrievalType.FIELD)
+ retrieving field grid_latitude_of_cell_center (mode = RetrievalType.FIELD)
+ retrieving field grid_longitude_of_cell_center (mode = RetrievalType.FIELD)
+ retrieving field grid_longitude_of_cell_center (mode = RetrievalType.FIELD)
+ retrieving field cell_owner_mask (mode = RetrievalType.FIELD)
+ retrieving field cell_owner_mask (mode = RetrievalType.FIELD)
+ retrieving field lsq_interpolation_coefficient (mode = RetrievalType.FIELD)
+ retrieving field deepatmo_divh (mode = RetrievalType.FIELD)
+ retrieving field deepatmo_divh (mode = RetrievalType.METADATA)
+ retrieving field deepatmo_divzL (mode = RetrievalType.METADATA)
+ retrieving field deepatmo_divzU (mode = RetrievalType.METADATA)
+ 2026-04-16 17:33:52,060 - factory.py: _compute            : DEBUG    getting dependencies dict_values(['height_u', 'height_l']) from <icon4py.model.common.states.factory.CompositeSource object at 0x73050aa2ffd0>
+ retrieving field height_u (mode = RetrievalType.FIELD)
+ retrieving field height_l (mode = RetrievalType.FIELD)
+ 2026-04-16 17:35:38,657 - factory.py: exchange            : DEBUG   provider for fields dict_keys(['deepatmo_divh', 'deepatmo_divzL', 'deepatmo_divzU']) needs exchange False
+ retrieving field deepatmo_divzL (mode = RetrievalType.FIELD)
+ retrieving field deepatmo_divzU (mode = RetrievalType.FIELD)
+ retrieving field functional_determinant_of_metrics_on_full_levels (mode = RetrievalType.FIELD)
+Using non-custom backend 'run_gtfn_cpu_cached' for 'compute_positive_definite_horizontal_multiplicative_flux_factor'.
+Using non-custom backend 'run_gtfn_cpu_cached' for 'apply_positive_definite_horizontal_multiplicative_flux_factor'.
+Using non-custom backend 'run_gtfn_cpu_cached' for 'reconstruct_linear_coefficients_svd'.
+Using non-custom backend 'run_gtfn_cpu_cached' for 'compute_horizontal_tracer_flux_from_linear_coefficients_alt'.
+ 2026-04-16 17:35:50,926 - advection_horizontal.py: __init__            : DEBUG   horizontal advection class init - start
+Using non-custom backend 'run_gtfn_cpu_cached' for 'compute_edge_tangential'.
+Using non-custom backend 'run_gtfn_cpu_cached' for 'compute_barycentric_backtrajectory_alt'.
+Using non-custom backend 'run_gtfn_cpu_cached' for 'integrate_tracer_horizontally'.
+ 2026-04-16 17:36:00,574 - advection_horizontal.py: __init__            : DEBUG   horizontal advection class init - end
+Using non-custom backend 'run_gtfn_cpu_cached' for 'limit_vertical_slope_semi_monotonically'.
+Using non-custom backend 'run_gtfn_cpu_cached' for 'compute_vertical_parabola_limiter_condition'.
+Using non-custom backend 'run_gtfn_cpu_cached' for 'limit_vertical_parabola_semi_monotonically'.
+ 2026-04-16 17:36:09,944 - advection_vertical.py: __init__            : DEBUG   vertical advection class init - start
+Using non-custom backend 'run_gtfn_cpu_cached' for 'init_constant_cell_kdim_field'.
+Using non-custom backend 'run_gtfn_cpu_cached' for 'compute_ppm4gpu_courant_number'.
+Using non-custom backend 'run_gtfn_cpu_cached' for 'compute_ppm_slope'.
+Using non-custom backend 'run_gtfn_cpu_cached' for 'compute_ppm_quadratic_face_values'.
+Using non-custom backend 'run_gtfn_cpu_cached' for 'compute_ppm_quartic_face_values'.
+Using non-custom backend 'run_gtfn_cpu_cached' for 'copy_cell_kdim_field'.
+Using non-custom backend 'run_gtfn_cpu_cached' for 'copy_cell_kdim_field_koff_minus1'.
+Using non-custom backend 'run_gtfn_cpu_cached' for 'compute_ppm4gpu_parabola_coefficients'.
+Using non-custom backend 'run_gtfn_cpu_cached' for 'compute_ppm4gpu_fractional_flux'.
+Using non-custom backend 'run_gtfn_cpu_cached' for 'compute_ppm4gpu_integer_flux'.
+Using non-custom backend 'run_gtfn_cpu_cached' for 'integrate_tracer_vertically'.
+ 2026-04-16 17:36:52,729 - advection_vertical.py: __init__            : DEBUG   vertical advection class init - end
+ 2026-04-16 17:36:52,730 - advection.py: __init__            : DEBUG   advection class init - start
+Using non-custom backend 'run_gtfn_cpu_cached' for 'apply_density_increment'.
+Using non-custom backend 'run_gtfn_cpu_cached' for 'apply_interpolated_tracer_time_tendency'.
+ 2026-04-16 17:36:57,574 - advection.py: __init__            : DEBUG   advection class init - end
+===== ICON4Py Driver Configuration =====
+Experiment name        : Jablonowski_Williamson
+Time step (dtime)      : 300.0 s
+Start date             : 0001-01-01 00:00:00
+End date               : 0001-01-01 00:30:00
+Number of timesteps    : 6
+Initial ndyn_substeps  : 5
+Vertical CFL threshold : 1.05
+Second-order divdamp   : False
+Statistics enabled     : True
+Number of tracers      : 0
+
+==== Vertical Grid Parameters ====
+Model interface height properties:
+    standard_name: model_interface_height
+    long_name: height value of half levels without topography
+    units: m
+    dims: (Dimension(value='KHalf', kind=<DimensionKind.VERTICAL: 'vertical'>),)
+    dtype: <class 'numpy.float64'>
+    positive: up
+    icon_var_name: vct_a
+Level    Coordinate    Thickness:
+   0      23500.000              End of damping layer 
+   1      22129.803     1370.197 Start of moist physics
+   2      20815.044     1314.759
+   3      19553.513     1261.530
+   4      18343.166     1210.348
+   5      17182.101     1161.064
+   6      16068.558     1113.544 End of flat layer 
+   7      15000.897     1067.661
+   8      13977.597     1023.300
+   9      12997.241      980.355
+  10      12058.516      938.726
+  11      11160.198      898.318
+  12      10301.154      859.044
+  13       9480.331      820.822
+  14       8696.759      783.573
+  15       7949.539      747.220
+  16       7237.849      711.691
+  17       6560.934      676.915
+  18       5918.112      642.822
+  19       5308.768      609.344
+  20       4732.359      576.409
+  21       4188.411      543.948
+  22       3676.524      511.886
+  23       3196.380      480.144
+  24       2747.743      448.637
+  25       2330.472      417.270
+  26       1944.537      385.935
+  27       1590.033      354.504
+  28       1267.212      322.821
+  29        976.525      290.687
+  30        718.690      257.835
+  31        494.805      223.886
+  32        306.554      188.251
+  33        156.649      149.905
+  34         50.000      106.649
+  35          0.000       50.000
+==== Physical Constants ====
+rd                            : 287.04
+rv                            : 461.51
+rv_o_rd_minus_1               : 0.6078246934225193
+cvd                           : 717.5999999999999
+cpd                           : 1004.64
+cpv                           : 1869.46
+cvv                           : 1407.95
+cpl                           : 4192.6641119999995
+cpi                           : 2108.0
+water_density                 : 1000.0
+tmelt                         : 273.15
+water_triple_point_temperature: 273.16
+lh_vaporise                   : 2500800.0
+lh_sublimate                  : 2834500.0
+lh_fusion                     : 333700.0
+rd_o_cpd                      : 0.28571428571428575
+rd_o_cvd                      : 0.4000000000000001
+cpd_o_rd                      : 3.4999999999999996
+cvd_o_rd                      : 2.4999999999999996
+rd_o_p0ref                    : 0.0028704000000000004
+grav_o_cpd                    : 0.00976135730211817
+grav_o_rd                     : 0.034164750557413595
+p0ref                         : 100000.0
+eps                           : 2.220446049250313e-16
+Generating the initial condition
+ retrieving field wgtfac_c (mode = RetrievalType.FIELD)
+ retrieving field functional_determinant_of_metrics_on_interface_levels (mode = RetrievalType.FIELD)
+ retrieving field theta_ref_mc (mode = RetrievalType.FIELD)
+ retrieving field theta_ref_ic (mode = RetrievalType.FIELD)
+ retrieving field exner_ref_mc (mode = RetrievalType.FIELD)
+ retrieving field d_exner_dz_ref_ic (mode = RetrievalType.FIELD)
+ retrieving field height (mode = RetrievalType.FIELD)
+ retrieving field grid_latitude_of_cell_center (mode = RetrievalType.FIELD)
+ retrieving field grid_latitude_of_edge_midpoint (mode = RetrievalType.FIELD)
+ retrieving field grid_longitude_of_edge_midpoint (mode = RetrievalType.FIELD)
+ retrieving field eastward_component_of_edge_normal (mode = RetrievalType.FIELD)
+ retrieving field interpolation_coefficient_from_cell_to_edge (mode = RetrievalType.FIELD)
+ retrieving field rbf_interpolation_coefficient_cell_1 (mode = RetrievalType.FIELD)
+computing field rbf_interpolation_coefficient_cell_1
+ retrieving field grid_latitude_of_cell_center (mode = RetrievalType.FIELD)
+ retrieving field grid_latitude_of_cell_center (mode = RetrievalType.FIELD)
+ retrieving field grid_longitude_of_cell_center (mode = RetrievalType.FIELD)
+ retrieving field grid_longitude_of_cell_center (mode = RetrievalType.FIELD)
+ retrieving field x_component_of_cell_center (mode = RetrievalType.FIELD)
+ retrieving field x_component_of_cell_center (mode = RetrievalType.FIELD)
+ retrieving field y_component_of_cell_center (mode = RetrievalType.FIELD)
+ retrieving field y_component_of_cell_center (mode = RetrievalType.FIELD)
+ retrieving field z_component_of_cell_center (mode = RetrievalType.FIELD)
+ retrieving field z_component_of_cell_center (mode = RetrievalType.FIELD)
+ retrieving field x_coordinate_of_edge_center (mode = RetrievalType.FIELD)
+ retrieving field x_coordinate_of_edge_center (mode = RetrievalType.FIELD)
+ retrieving field y_coordinate_of_edge_center (mode = RetrievalType.FIELD)
+ retrieving field y_coordinate_of_edge_center (mode = RetrievalType.FIELD)
+ retrieving field z_coordinate_of_edge_center (mode = RetrievalType.FIELD)
+ retrieving field z_coordinate_of_edge_center (mode = RetrievalType.FIELD)
+ retrieving field x_component_of_edge_normal_unit_vector (mode = RetrievalType.FIELD)
+ retrieving field x_component_of_edge_normal_unit_vector (mode = RetrievalType.FIELD)
+ retrieving field y_component_of_edge_normal_unit_vector (mode = RetrievalType.FIELD)
+ retrieving field y_component_of_edge_normal_unit_vector (mode = RetrievalType.FIELD)
+ retrieving field z_component_of_edge_normal_unit_vector (mode = RetrievalType.FIELD)
+ retrieving field z_component_of_edge_normal_unit_vector (mode = RetrievalType.FIELD)
+ retrieving field rbf_scale_cell (mode = RetrievalType.FIELD)
+computing field rbf_scale_cell
+ retrieving field characteristic_length (mode = RetrievalType.FIELD)
+ retrieving field characteristic_length (mode = RetrievalType.FIELD)
+ retrieving field mean_dual_edge_length (mode = RetrievalType.FIELD)
+ retrieving field mean_dual_edge_length (mode = RetrievalType.FIELD)
+ retrieving field rbf_scale_cell (mode = RetrievalType.FIELD)
+ retrieving field rbf_interpolation_coefficient_cell_2 (mode = RetrievalType.FIELD)
+In Newton iteration, k = 34
+In Newton iteration, k = 33
+In Newton iteration, k = 32
+In Newton iteration, k = 31
+In Newton iteration, k = 30
+In Newton iteration, k = 29
+In Newton iteration, k = 28
+In Newton iteration, k = 27
+In Newton iteration, k = 26
+In Newton iteration, k = 25
+In Newton iteration, k = 24
+In Newton iteration, k = 23
+In Newton iteration, k = 22
+In Newton iteration, k = 21
+In Newton iteration, k = 20
+In Newton iteration, k = 19
+In Newton iteration, k = 18
+In Newton iteration, k = 17
+In Newton iteration, k = 16
+In Newton iteration, k = 15
+In Newton iteration, k = 14
+In Newton iteration, k = 13
+In Newton iteration, k = 12
+In Newton iteration, k = 11
+In Newton iteration, k = 10
+In Newton iteration, k = 9
+In Newton iteration, k = 8
+In Newton iteration, k = 7
+In Newton iteration, k = 6
+In Newton iteration, k = 5
+In Newton iteration, k = 4
+In Newton iteration, k = 3
+In Newton iteration, k = 2
+In Newton iteration, k = 1
+In Newton iteration, k = 0
+Newton iteration completed.
+Cell-to-edge eta_v computation completed.
+ retrieving field vertical_coordinates_on_half_levels (mode = RetrievalType.FIELD)
+ retrieving field inverse_of_length_of_dual_edge (mode = RetrievalType.FIELD)
+ retrieving field edge_midpoint_to_cell_center_distance (mode = RetrievalType.FIELD)
+ retrieving field edge_length (mode = RetrievalType.FIELD)
+ retrieving field cell_area (mode = RetrievalType.FIELD)
+U2vn computation completed.
+Hydrostatic adjustment computation completed.
+U, V computation completed.
+ retrieving field exner_ref_mc (mode = RetrievalType.FIELD)
+perturbed_exner initialization completed.
+Initialization completed.
+driver setup: DONE
+time loop: START
+ 2026-04-16 17:44:00,234 - standalone_driver.py: time_integration    : DEBUG   starting time loop for dtime = 300.0 s, substep_timestep = 60.0 s, n_timesteps = 6
+
+simulation date : 0001-01-01 00:00:00, at timestep : 0, Elapsed wall clock time: 3.6e-05
+
+ 2026-04-16 17:44:00,327 - standalone_driver.py: _integrate_one_time_step: DEBUG   Running <class 'icon4py.model.atmosphere.dycore.solve_nonhydro.SolveNonhydro'>
+ 2026-04-16 17:44:00,333 - standalone_driver.py: _integrate_one_time_step: DEBUG   Running <class 'icon4py.model.atmosphere.diffusion.diffusion.Diffusion'>
+ 2026-04-16 17:44:07,987 - diffusion.py: _do_diffusion_step  : DEBUG   rbf interpolation 1: start
+ 2026-04-16 17:44:07,999 - diffusion.py: _do_diffusion_step  : DEBUG   rbf interpolation 1: end
+ 2026-04-16 17:44:08,026 - diffusion.py: _do_diffusion_step  : DEBUG   communication rbf extrapolation of vn - start
+ 2026-04-16 17:44:08,183 - diffusion.py: _do_diffusion_step  : DEBUG   communication rbf extrapolation of vn - end
+ 2026-04-16 17:44:08,188 - diffusion.py: _do_diffusion_step  : DEBUG   running stencil 01(calculate_nabla2_and_smag_coefficients_for_vn): start
+ 2026-04-16 17:44:14,517 - diffusion.py: _do_diffusion_step  : DEBUG   running stencil 01 (calculate_nabla2_and_smag_coefficients_for_vn): end
+ 2026-04-16 17:44:14,517 - diffusion.py: _do_diffusion_step  : DEBUG   running stencils 02 03 (calculate_diagnostic_quantities_for_turbulence): start
+ 2026-04-16 17:44:14,523 - diffusion.py: _do_diffusion_step  : DEBUG   running stencils 02 03 (calculate_diagnostic_quantities_for_turbulence): end
+ 2026-04-16 17:44:14,606 - diffusion.py: _do_diffusion_step  : DEBUG   2nd rbf interpolation: start
+ 2026-04-16 17:44:14,608 - diffusion.py: _do_diffusion_step  : DEBUG   2nd rbf interpolation: end
+ 2026-04-16 17:44:14,608 - diffusion.py: _do_diffusion_step  : DEBUG   communication rbf extrapolation of z_nable2_e - start
+ 2026-04-16 17:44:14,616 - diffusion.py: _do_diffusion_step  : DEBUG   communication rbf extrapolation of z_nable2_e - end
+ 2026-04-16 17:44:14,629 - diffusion.py: _do_diffusion_step  : DEBUG   running stencils 04 05 06 (apply_diffusion_to_vn): start
+ 2026-04-16 17:44:16,928 - diffusion.py: _do_diffusion_step  : DEBUG   running stencils 04 05 06 (apply_diffusion_to_vn): end
+ 2026-04-16 17:44:16,928 - diffusion.py: _do_diffusion_step  : DEBUG   communication of prognistic.vn : start
+ 2026-04-16 17:44:16,928 - diffusion.py: _do_diffusion_step  : DEBUG   running stencils 07 08 09 10 (apply_diffusion_to_w_and_compute_horizontal_gradients_for_turbulence): start
+ 2026-04-16 17:44:32,904 - diffusion.py: _do_diffusion_step  : DEBUG   running stencils 07 08 09 10 (apply_diffusion_to_w_and_compute_horizontal_gradients_for_turbulence): end
+ 2026-04-16 17:44:32,909 - diffusion.py: _do_diffusion_step  : DEBUG   communication of prognogistic.vn - end
+
+simulation date : 0001-01-01 00:05:00, at timestep : 1, Elapsed wall clock time: 32.593528
+
+ 2026-04-16 17:44:32,920 - standalone_driver.py: _integrate_one_time_step: DEBUG   Running <class 'icon4py.model.atmosphere.dycore.solve_nonhydro.SolveNonhydro'>
+ 2026-04-16 17:44:32,925 - standalone_driver.py: _integrate_one_time_step: DEBUG   Running <class 'icon4py.model.atmosphere.diffusion.diffusion.Diffusion'>
+ 2026-04-16 17:44:32,935 - diffusion.py: _do_diffusion_step  : DEBUG   rbf interpolation 1: start
+ 2026-04-16 17:44:32,950 - diffusion.py: _do_diffusion_step  : DEBUG   rbf interpolation 1: end
+ 2026-04-16 17:44:33,080 - diffusion.py: _do_diffusion_step  : DEBUG   communication rbf extrapolation of vn - start
+ 2026-04-16 17:44:33,142 - diffusion.py: _do_diffusion_step  : DEBUG   communication rbf extrapolation of vn - end
+ 2026-04-16 17:44:33,147 - diffusion.py: _do_diffusion_step  : DEBUG   running stencil 01(calculate_nabla2_and_smag_coefficients_for_vn): start
+ 2026-04-16 17:44:33,154 - diffusion.py: _do_diffusion_step  : DEBUG   running stencil 01 (calculate_nabla2_and_smag_coefficients_for_vn): end
+ 2026-04-16 17:44:33,154 - diffusion.py: _do_diffusion_step  : DEBUG   running stencils 02 03 (calculate_diagnostic_quantities_for_turbulence): start
+ 2026-04-16 17:44:33,188 - diffusion.py: _do_diffusion_step  : DEBUG   running stencils 02 03 (calculate_diagnostic_quantities_for_turbulence): end
+ 2026-04-16 17:44:33,188 - diffusion.py: _do_diffusion_step  : DEBUG   2nd rbf interpolation: start
+ 2026-04-16 17:44:33,194 - diffusion.py: _do_diffusion_step  : DEBUG   2nd rbf interpolation: end
+ 2026-04-16 17:44:33,202 - diffusion.py: _do_diffusion_step  : DEBUG   communication rbf extrapolation of z_nable2_e - start
+ 2026-04-16 17:44:33,291 - diffusion.py: _do_diffusion_step  : DEBUG   communication rbf extrapolation of z_nable2_e - end
+ 2026-04-16 17:44:33,363 - diffusion.py: _do_diffusion_step  : DEBUG   running stencils 04 05 06 (apply_diffusion_to_vn): start
+ 2026-04-16 17:44:33,401 - diffusion.py: _do_diffusion_step  : DEBUG   running stencils 04 05 06 (apply_diffusion_to_vn): end
+ 2026-04-16 17:44:33,419 - diffusion.py: _do_diffusion_step  : DEBUG   communication of prognistic.vn : start
+ 2026-04-16 17:44:33,424 - diffusion.py: _do_diffusion_step  : DEBUG   running stencils 07 08 09 10 (apply_diffusion_to_w_and_compute_horizontal_gradients_for_turbulence): start
+ 2026-04-16 17:44:33,507 - diffusion.py: _do_diffusion_step  : DEBUG   running stencils 07 08 09 10 (apply_diffusion_to_w_and_compute_horizontal_gradients_for_turbulence): end
+ 2026-04-16 17:44:33,513 - diffusion.py: _do_diffusion_step  : DEBUG   communication of prognogistic.vn - end
+
+simulation date : 0001-01-01 00:10:00, at timestep : 2, Elapsed wall clock time: 33.191939
+
+ 2026-04-16 17:44:33,513 - standalone_driver.py: _integrate_one_time_step: DEBUG   Running <class 'icon4py.model.atmosphere.dycore.solve_nonhydro.SolveNonhydro'>
+ 2026-04-16 17:44:33,513 - standalone_driver.py: _integrate_one_time_step: DEBUG   Running <class 'icon4py.model.atmosphere.diffusion.diffusion.Diffusion'>
+ 2026-04-16 17:44:33,519 - diffusion.py: _do_diffusion_step  : DEBUG   rbf interpolation 1: start
+ 2026-04-16 17:44:33,579 - diffusion.py: _do_diffusion_step  : DEBUG   rbf interpolation 1: end
+ 2026-04-16 17:44:33,579 - diffusion.py: _do_diffusion_step  : DEBUG   communication rbf extrapolation of vn - start
+ 2026-04-16 17:44:33,579 - diffusion.py: _do_diffusion_step  : DEBUG   communication rbf extrapolation of vn - end
+ 2026-04-16 17:44:33,579 - diffusion.py: _do_diffusion_step  : DEBUG   running stencil 01(calculate_nabla2_and_smag_coefficients_for_vn): start
+ 2026-04-16 17:44:33,599 - diffusion.py: _do_diffusion_step  : DEBUG   running stencil 01 (calculate_nabla2_and_smag_coefficients_for_vn): end
+ 2026-04-16 17:44:33,613 - diffusion.py: _do_diffusion_step  : DEBUG   running stencils 02 03 (calculate_diagnostic_quantities_for_turbulence): start
+ 2026-04-16 17:44:33,623 - diffusion.py: _do_diffusion_step  : DEBUG   running stencils 02 03 (calculate_diagnostic_quantities_for_turbulence): end
+ 2026-04-16 17:44:33,623 - diffusion.py: _do_diffusion_step  : DEBUG   2nd rbf interpolation: start
+ 2026-04-16 17:44:33,656 - diffusion.py: _do_diffusion_step  : DEBUG   2nd rbf interpolation: end
+ 2026-04-16 17:44:33,717 - diffusion.py: _do_diffusion_step  : DEBUG   communication rbf extrapolation of z_nable2_e - start
+ 2026-04-16 17:44:33,717 - diffusion.py: _do_diffusion_step  : DEBUG   communication rbf extrapolation of z_nable2_e - end
+ 2026-04-16 17:44:33,717 - diffusion.py: _do_diffusion_step  : DEBUG   running stencils 04 05 06 (apply_diffusion_to_vn): start
+ 2026-04-16 17:44:33,722 - diffusion.py: _do_diffusion_step  : DEBUG   running stencils 04 05 06 (apply_diffusion_to_vn): end
+ 2026-04-16 17:44:33,722 - diffusion.py: _do_diffusion_step  : DEBUG   communication of prognistic.vn : start
+ 2026-04-16 17:44:33,722 - diffusion.py: _do_diffusion_step  : DEBUG   running stencils 07 08 09 10 (apply_diffusion_to_w_and_compute_horizontal_gradients_for_turbulence): start
+ 2026-04-16 17:44:33,803 - diffusion.py: _do_diffusion_step  : DEBUG   running stencils 07 08 09 10 (apply_diffusion_to_w_and_compute_horizontal_gradients_for_turbulence): end
+ 2026-04-16 17:44:33,827 - diffusion.py: _do_diffusion_step  : DEBUG   communication of prognogistic.vn - end
+
+simulation date : 0001-01-01 00:15:00, at timestep : 3, Elapsed wall clock time: 33.505823
+
+ 2026-04-16 17:44:33,832 - standalone_driver.py: _integrate_one_time_step: DEBUG   Running <class 'icon4py.model.atmosphere.dycore.solve_nonhydro.SolveNonhydro'>
+ 2026-04-16 17:44:33,838 - standalone_driver.py: _integrate_one_time_step: DEBUG   Running <class 'icon4py.model.atmosphere.diffusion.diffusion.Diffusion'>
+ 2026-04-16 17:44:34,012 - diffusion.py: _do_diffusion_step  : DEBUG   rbf interpolation 1: start
+ 2026-04-16 17:44:34,015 - diffusion.py: _do_diffusion_step  : DEBUG   rbf interpolation 1: end
+ 2026-04-16 17:44:34,034 - diffusion.py: _do_diffusion_step  : DEBUG   communication rbf extrapolation of vn - start
+ 2026-04-16 17:44:34,034 - diffusion.py: _do_diffusion_step  : DEBUG   communication rbf extrapolation of vn - end
+ 2026-04-16 17:44:34,034 - diffusion.py: _do_diffusion_step  : DEBUG   running stencil 01(calculate_nabla2_and_smag_coefficients_for_vn): start
+ 2026-04-16 17:44:34,037 - diffusion.py: _do_diffusion_step  : DEBUG   running stencil 01 (calculate_nabla2_and_smag_coefficients_for_vn): end
+ 2026-04-16 17:44:34,044 - diffusion.py: _do_diffusion_step  : DEBUG   running stencils 02 03 (calculate_diagnostic_quantities_for_turbulence): start
+ 2026-04-16 17:44:34,051 - diffusion.py: _do_diffusion_step  : DEBUG   running stencils 02 03 (calculate_diagnostic_quantities_for_turbulence): end
+ 2026-04-16 17:44:34,051 - diffusion.py: _do_diffusion_step  : DEBUG   2nd rbf interpolation: start
+ 2026-04-16 17:44:34,054 - diffusion.py: _do_diffusion_step  : DEBUG   2nd rbf interpolation: end
+ 2026-04-16 17:44:34,065 - diffusion.py: _do_diffusion_step  : DEBUG   communication rbf extrapolation of z_nable2_e - start
+ 2026-04-16 17:44:34,080 - diffusion.py: _do_diffusion_step  : DEBUG   communication rbf extrapolation of z_nable2_e - end
+ 2026-04-16 17:44:34,137 - diffusion.py: _do_diffusion_step  : DEBUG   running stencils 04 05 06 (apply_diffusion_to_vn): start
+ 2026-04-16 17:44:34,212 - diffusion.py: _do_diffusion_step  : DEBUG   running stencils 04 05 06 (apply_diffusion_to_vn): end
+ 2026-04-16 17:44:34,217 - diffusion.py: _do_diffusion_step  : DEBUG   communication of prognistic.vn : start
+ 2026-04-16 17:44:34,268 - diffusion.py: _do_diffusion_step  : DEBUG   running stencils 07 08 09 10 (apply_diffusion_to_w_and_compute_horizontal_gradients_for_turbulence): start
+ 2026-04-16 17:44:34,311 - diffusion.py: _do_diffusion_step  : DEBUG   running stencils 07 08 09 10 (apply_diffusion_to_w_and_compute_horizontal_gradients_for_turbulence): end
+ 2026-04-16 17:44:34,316 - diffusion.py: _do_diffusion_step  : DEBUG   communication of prognogistic.vn - end
+
+simulation date : 0001-01-01 00:20:00, at timestep : 4, Elapsed wall clock time: 34.000435
+
+ 2026-04-16 17:44:34,327 - standalone_driver.py: _integrate_one_time_step: DEBUG   Running <class 'icon4py.model.atmosphere.dycore.solve_nonhydro.SolveNonhydro'>
+ 2026-04-16 17:44:34,332 - standalone_driver.py: _integrate_one_time_step: DEBUG   Running <class 'icon4py.model.atmosphere.diffusion.diffusion.Diffusion'>
+ 2026-04-16 17:44:34,342 - diffusion.py: _do_diffusion_step  : DEBUG   rbf interpolation 1: start
+ 2026-04-16 17:44:34,377 - diffusion.py: _do_diffusion_step  : DEBUG   rbf interpolation 1: end
+ 2026-04-16 17:44:34,377 - diffusion.py: _do_diffusion_step  : DEBUG   communication rbf extrapolation of vn - start
+ 2026-04-16 17:44:34,409 - diffusion.py: _do_diffusion_step  : DEBUG   communication rbf extrapolation of vn - end
+ 2026-04-16 17:44:34,414 - diffusion.py: _do_diffusion_step  : DEBUG   running stencil 01(calculate_nabla2_and_smag_coefficients_for_vn): start
+ 2026-04-16 17:44:34,460 - diffusion.py: _do_diffusion_step  : DEBUG   running stencil 01 (calculate_nabla2_and_smag_coefficients_for_vn): end
+ 2026-04-16 17:44:34,460 - diffusion.py: _do_diffusion_step  : DEBUG   running stencils 02 03 (calculate_diagnostic_quantities_for_turbulence): start
+ 2026-04-16 17:44:34,477 - diffusion.py: _do_diffusion_step  : DEBUG   running stencils 02 03 (calculate_diagnostic_quantities_for_turbulence): end
+ 2026-04-16 17:44:34,526 - diffusion.py: _do_diffusion_step  : DEBUG   2nd rbf interpolation: start
+ 2026-04-16 17:44:34,593 - diffusion.py: _do_diffusion_step  : DEBUG   2nd rbf interpolation: end
+ 2026-04-16 17:44:34,593 - diffusion.py: _do_diffusion_step  : DEBUG   communication rbf extrapolation of z_nable2_e - start
+ 2026-04-16 17:44:34,593 - diffusion.py: _do_diffusion_step  : DEBUG   communication rbf extrapolation of z_nable2_e - end
+ 2026-04-16 17:44:34,593 - diffusion.py: _do_diffusion_step  : DEBUG   running stencils 04 05 06 (apply_diffusion_to_vn): start
+ 2026-04-16 17:44:34,598 - diffusion.py: _do_diffusion_step  : DEBUG   running stencils 04 05 06 (apply_diffusion_to_vn): end
+ 2026-04-16 17:44:34,598 - diffusion.py: _do_diffusion_step  : DEBUG   communication of prognistic.vn : start
+ 2026-04-16 17:44:34,611 - diffusion.py: _do_diffusion_step  : DEBUG   running stencils 07 08 09 10 (apply_diffusion_to_w_and_compute_horizontal_gradients_for_turbulence): start
+ 2026-04-16 17:44:34,664 - diffusion.py: _do_diffusion_step  : DEBUG   running stencils 07 08 09 10 (apply_diffusion_to_w_and_compute_horizontal_gradients_for_turbulence): end
+ 2026-04-16 17:44:34,664 - diffusion.py: _do_diffusion_step  : DEBUG   communication of prognogistic.vn - end
+
+simulation date : 0001-01-01 00:25:00, at timestep : 5, Elapsed wall clock time: 34.342853
+
+ 2026-04-16 17:44:34,664 - standalone_driver.py: _integrate_one_time_step: DEBUG   Running <class 'icon4py.model.atmosphere.dycore.solve_nonhydro.SolveNonhydro'>
+ 2026-04-16 17:44:34,664 - standalone_driver.py: _integrate_one_time_step: DEBUG   Running <class 'icon4py.model.atmosphere.diffusion.diffusion.Diffusion'>
+ 2026-04-16 17:44:34,666 - diffusion.py: _do_diffusion_step  : DEBUG   rbf interpolation 1: start
+ 2026-04-16 17:44:34,679 - diffusion.py: _do_diffusion_step  : DEBUG   rbf interpolation 1: end
+ 2026-04-16 17:44:34,679 - diffusion.py: _do_diffusion_step  : DEBUG   communication rbf extrapolation of vn - start
+ 2026-04-16 17:44:34,679 - diffusion.py: _do_diffusion_step  : DEBUG   communication rbf extrapolation of vn - end
+ 2026-04-16 17:44:34,679 - diffusion.py: _do_diffusion_step  : DEBUG   running stencil 01(calculate_nabla2_and_smag_coefficients_for_vn): start
+ 2026-04-16 17:44:34,723 - diffusion.py: _do_diffusion_step  : DEBUG   running stencil 01 (calculate_nabla2_and_smag_coefficients_for_vn): end
+ 2026-04-16 17:44:34,728 - diffusion.py: _do_diffusion_step  : DEBUG   running stencils 02 03 (calculate_diagnostic_quantities_for_turbulence): start
+ 2026-04-16 17:44:34,748 - diffusion.py: _do_diffusion_step  : DEBUG   running stencils 02 03 (calculate_diagnostic_quantities_for_turbulence): end
+ 2026-04-16 17:44:34,748 - diffusion.py: _do_diffusion_step  : DEBUG   2nd rbf interpolation: start
+ 2026-04-16 17:44:34,776 - diffusion.py: _do_diffusion_step  : DEBUG   2nd rbf interpolation: end
+ 2026-04-16 17:44:34,776 - diffusion.py: _do_diffusion_step  : DEBUG   communication rbf extrapolation of z_nable2_e - start
+ 2026-04-16 17:44:34,776 - diffusion.py: _do_diffusion_step  : DEBUG   communication rbf extrapolation of z_nable2_e - end
+ 2026-04-16 17:44:34,776 - diffusion.py: _do_diffusion_step  : DEBUG   running stencils 04 05 06 (apply_diffusion_to_vn): start
+ 2026-04-16 17:44:34,797 - diffusion.py: _do_diffusion_step  : DEBUG   running stencils 04 05 06 (apply_diffusion_to_vn): end
+ 2026-04-16 17:44:34,797 - diffusion.py: _do_diffusion_step  : DEBUG   communication of prognistic.vn : start
+ 2026-04-16 17:44:34,797 - diffusion.py: _do_diffusion_step  : DEBUG   running stencils 07 08 09 10 (apply_diffusion_to_w_and_compute_horizontal_gradients_for_turbulence): start
+ 2026-04-16 17:44:34,878 - diffusion.py: _do_diffusion_step  : DEBUG   running stencils 07 08 09 10 (apply_diffusion_to_w_and_compute_horizontal_gradients_for_turbulence): end
+ 2026-04-16 17:44:34,883 - diffusion.py: _do_diffusion_step  : DEBUG   communication of prognogistic.vn - end
+
+Global mean of    rho         vn           w          theta_v     exner      at model levels:
+   23500.000: 6.01902e-02 -4.22929e-01 -2.26516e-21 5.77891e+02 3.97856e-01 
+   22129.803: 7.61441e-02 -4.25961e-01 -2.94644e-21 5.27976e+02 4.21577e-01 
+   20815.044: 9.58096e-02 -4.29472e-01 -3.79204e-21 4.84246e+02 4.46444e-01 
+   19553.513: 1.19277e-01 -4.33458e-01 -4.83062e-21 4.47882e+02 4.72351e-01 
+   18343.166: 1.46101e-01 -4.37844e-01 -6.09328e-21 4.19543e+02 4.99055e-01 
+   17182.101: 1.75420e-01 -4.42478e-01 -7.61329e-21 3.98891e+02 5.26199e-01 
+   16068.558: 2.06418e-01 -4.47132e-01 -9.42558e-21 3.84473e+02 5.53378e-01 
+   15000.897: 2.38811e-01 -4.51535e-01 -1.15662e-20 3.74182e+02 5.80273e-01 
+   13977.597: 2.72825e-01 -4.55390e-01 -1.40716e-20 3.66086e+02 6.06686e-01 
+   12997.241: 3.08699e-01 -4.58384e-01 -1.69778e-20 3.59072e+02 6.32504e-01 
+   12058.516: 3.46344e-01 -4.60195e-01 -2.03192e-20 3.52835e+02 6.57671e-01 
+   11160.198: 3.85488e-01 -4.60496e-01 -2.41281e-20 3.47322e+02 6.82141e-01 
+   10301.154: 4.25813e-01 -4.58971e-01 -2.84327e-20 3.42492e+02 7.05870e-01 
+    9480.331: 4.66982e-01 -4.55338e-01 -3.32567e-20 3.38305e+02 7.28820e-01 
+    8696.759: 5.08647e-01 -4.49364e-01 -3.86173e-20 3.34714e+02 7.50954e-01 
+    7949.539: 5.50467e-01 -4.40896e-01 -4.45244e-20 3.31670e+02 7.72239e-01 
+    7237.849: 5.92124e-01 -4.29859e-01 -5.09793e-20 3.29116e+02 7.92650e-01 
+    6560.934: 6.33332e-01 -4.16287e-01 -5.79734e-20 3.26992e+02 8.12165e-01 
+    5918.112: 6.73851e-01 -4.00310e-01 -6.54871e-20 3.25230e+02 8.30766e-01 
+    5308.768: 7.13486e-01 -3.82153e-01 -7.34890e-20 3.23765e+02 8.48444e-01 
+    4732.359: 7.52088e-01 -3.62125e-01 -8.19349e-20 3.22529e+02 8.65191e-01 
+    4188.411: 7.89549e-01 -3.40604e-01 -9.07676e-20 3.21458e+02 8.81005e-01 
+    3676.524: 8.25788e-01 -3.18015e-01 -9.99161e-20 3.20495e+02 8.95886e-01 
+    3196.380: 8.60742e-01 -2.94812e-01 -1.09296e-19 3.19590e+02 9.09837e-01 
+    2747.743: 8.94352e-01 -2.71430e-01 -1.18808e-19 3.18705e+02 9.22860e-01 
+    2330.472: 9.26551e-01 -2.48310e-01 -1.28342e-19 3.17809e+02 9.34956e-01 
+    1944.537: 9.57250e-01 -2.25915e-01 -1.37772e-19 3.16887e+02 9.46126e-01 
+    1590.033: 9.86329e-01 -2.04631e-01 -1.46961e-19 3.15932e+02 9.56363e-01 
+    1267.212: 1.01362e+00 -1.84798e-01 -1.55758e-19 3.14948e+02 9.65659e-01 
+     976.525: 1.03892e+00 -1.66710e-01 -1.64000e-19 3.13952e+02 9.73992e-01 
+     718.690: 1.06194e+00 -1.50623e-01 -1.71511e-19 3.12970e+02 9.81335e-01 
+     494.805: 1.08231e+00 -1.36764e-01 -1.78091e-19 3.12035e+02 9.87641e-01 
+     306.554: 1.09956e+00 -1.25360e-01 -1.83511e-19 3.11196e+02 9.92835e-01 
+     156.649: 1.11297e+00 -1.16722e-01 -1.87468e-19 3.10510e+02 9.96784e-01 
+      50.000: 1.12136e+00 -1.11434e-01 -1.89298e-19 3.10068e+02 9.99213e-01 
+===== ICON4Py timer report =====
+|          timer name          |  no. of times called  |     mean time (s)     |  std. deviation (s)   |     min time (s)      |     max time (s)      |
+--------------------------------------------------------------------------------------------------------------------------------------------------------
+|     solve_nh_first_step      |      not started      |                       |                       |                       |                       |
+|           solve_nh           |      not started      |                       |                       |                       |                       |
+|     diffusion_first_step     |           1           |      32.58178573      |      0.00000000       |      32.58178573      |      32.58178573      |
+|          diffusion           |           5           |      0.35545146       |      0.13519109       |      0.21927552       |      0.58252103       |
+time loop:  DONE
+The program exited via sys.exit(). Exit status: 0
