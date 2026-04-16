@@ -149,3 +149,6 @@ img/offsetProvider_v2e.png
 img/offsetProvider_e2v.png
 img/offsetProvider_parallelogram_c2e.png
 img/offsetProvider_e2c.png
+*out*.txt
+err*.txt
+stencil_reference.txt

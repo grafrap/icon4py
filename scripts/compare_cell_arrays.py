@@ -11,6 +11,8 @@ import argparse
 import re
 import sys
 from typing import Iterable
+from gt4py.next.modules.translator import transform_to_unstructured
+import numpy as np
 
 
 def parse_array(bracketed_text: str) -> list[float]:
@@ -116,7 +118,10 @@ def main() -> None:
 	args = parser.parse_args()
 
 	try:
-		a, b = get_two_arrays(args.file, args.file_b)
+		a_, b_ = get_two_arrays(args.file, args.file_b)
+		trafo = transform_to_unstructured(np.array(a_), 13, "Cell")[1]
+		a = np.array(a_)[trafo] # only necessary, if we do unstructured backend !!!
+		b = np.array(b_)[trafo]
 	except Exception as exc:
 		print(str(exc), file=sys.stderr)
 		sys.exit(2)

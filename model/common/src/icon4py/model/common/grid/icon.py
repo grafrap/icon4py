@@ -8,6 +8,7 @@
 import dataclasses
 import logging
 import math
+import os
 from collections.abc import Callable
 from typing import Final, TypeVar
 
@@ -191,10 +192,14 @@ def _should_replace_skip_values(
         bool: True if the skip values in the neighbor table should be replaced, False otherwise.
 
     """
+    # Keep skip values for selected connectivities only in structured mode.
+    # In unstructured mode we retain main-branch behavior to avoid boundary
+    # mismatches between stencil execution and numpy references in tests.
     local_dim = offset.target[1]
-    if local_dim in CONNECTIVITIES_REQUIRING_SKIP_VALUES:
-        return False
-    return not keep_skip_values and ( 
+    if os.environ.get("USE_STRUCTURED_BACKEND", "0") == "1":
+        if local_dim in CONNECTIVITIES_REQUIRING_SKIP_VALUES:
+            return False
+    return not keep_skip_values and (
         limited_area_or_distributed or not _has_skip_values(offset, limited_area_or_distributed)
     )
 

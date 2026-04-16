@@ -153,7 +153,7 @@ def test_and_benchmark(
     _configured_program: Callable[..., None],
     request: pytest.FixtureRequest,
 ) -> None:
-    # print(f"\n=== RUNNING TEST FOR PROGRAM: {self.PROGRAM} ===")
+    print(f"\n=== RUNNING TEST FOR PROGRAM: {self.PROGRAM} ===")
     prepared_input_data = self._prepare_program_inputs(
         grid=grid,
         input_data=_properly_allocated_input_data,
@@ -170,7 +170,7 @@ def test_and_benchmark(
             input_data=prepared_input_data,
         )
         reference_outputs = self.reference(reference_connectivities, **reference_inputs)
-        # print(f"Reference outputs computed: {list(reference_outputs.keys())}")
+        print(f"Reference outputs computed: {list(reference_outputs.keys())}")
 
         _configured_program(**prepared_input_data, offset_provider=grid.connectivities)
         self._verify_stencil_test(
@@ -599,7 +599,6 @@ class StencilTest:
                 assert isinstance(reference_outputs_name, np.ndarray)
                 # write output and reference into other output files
                 open(f"stencil_output.txt", "w").write(str(input_data_name.asnumpy()[gtslice][:,0]) + "\n" + str(reference_outputs_name[refslice][:,0]))
-                # open(f"stencil_reference.txt", "w").write(str(reference_outputs_name[refslice][:,0]))
                 # print(f"output:\n{input_data_name.asnumpy()[gtslice][:,0]}")
                 # print(f"reference:\n{reference_outputs_name[refslice][:,0]}")
                 # print(f"slices - gt4py: {gtslice}, reference: {refslice}")

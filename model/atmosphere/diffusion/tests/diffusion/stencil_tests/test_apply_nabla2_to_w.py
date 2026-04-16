@@ -73,26 +73,26 @@ class TestMoApplyNabla2ToW(StencilTest):
         )
 
 
-def build_c2e2co_for_w(ni, nj, geofac_n2s_np):
-    n_cells = ni * nj * 2
-    c2e2co = np.full((n_cells, 3), -1, dtype=np.int32)
-    def ijk_to_c(i, j, k): return i * nj * 2 + j * 2 + k if 0 <= i < ni and 0 <= j < nj else -1
+# def build_c2e2co_for_w(ni, nj, geofac_n2s_np):
+#     n_cells = ni * nj * 2
+#     c2e2co = np.full((n_cells, 3), -1, dtype=np.int32)
+#     def ijk_to_c(i, j, k): return i * nj * 2 + j * 2 + k if 0 <= i < ni and 0 <= j < nj else -1
 
-    geofac_n2s_s = tuple(np.zeros((ni, nj, 2), dtype=np.float64) for _ in range(3))
+#     geofac_n2s_s = tuple(np.zeros((ni, nj, 2), dtype=np.float64) for _ in range(3))
 
-    for i in range(ni):
-        for j in range(nj):
-            c0, c1 = ijk_to_c(i, j, 0), ijk_to_c(i, j, 1)
-            n0_0, n0_1, n0_2 = ijk_to_c(i, j, 1), ijk_to_c(i, j-1, 1), ijk_to_c(i-1, j, 1)
-            n1_0, n1_1, n1_2 = ijk_to_c(i, j, 0), ijk_to_c(i, j+1, 0), ijk_to_c(i+1, j, 0)
-            c2e2co[c0] = [n0_0, n0_1, n0_2]
-            c2e2co[c1] = [n1_0, n1_1, n1_2]
+#     for i in range(ni):
+#         for j in range(nj):
+#             c0, c1 = ijk_to_c(i, j, 0), ijk_to_c(i, j, 1)
+#             n0_0, n0_1, n0_2 = ijk_to_c(i, j, 1), ijk_to_c(i, j-1, 1), ijk_to_c(i-1, j, 1)
+#             n1_0, n1_1, n1_2 = ijk_to_c(i, j, 0), ijk_to_c(i, j+1, 0), ijk_to_c(i+1, j, 0)
+#             c2e2co[c0] = [n0_0, n0_1, n0_2]
+#             c2e2co[c1] = [n1_0, n1_1, n1_2]
 
-            for n_idx, n_c in enumerate([n0_0, n0_1, n0_2]):
-                if n_c != -1: geofac_n2s_s[n_idx][i, j, 0] = geofac_n2s_np[c0, n_idx]
-            for n_idx, n_c in enumerate([n1_0, n1_1, n1_2]):
-                if n_c != -1: geofac_n2s_s[n_idx][i, j, 1] = geofac_n2s_np[c1, n_idx]
-    return c2e2co, geofac_n2s_s
+#             for n_idx, n_c in enumerate([n0_0, n0_1, n0_2]):
+#                 if n_c != -1: geofac_n2s_s[n_idx][i, j, 0] = geofac_n2s_np[c0, n_idx]
+#             for n_idx, n_c in enumerate([n1_0, n1_1, n1_2]):
+#                 if n_c != -1: geofac_n2s_s[n_idx][i, j, 1] = geofac_n2s_np[c1, n_idx]
+#     return c2e2co, geofac_n2s_s
 
 # def test_apply_nabla2_to_w_cartesian(backend="gtfn_cpu"):
 #     ni, nj, num_levels = 10, 10, 10
