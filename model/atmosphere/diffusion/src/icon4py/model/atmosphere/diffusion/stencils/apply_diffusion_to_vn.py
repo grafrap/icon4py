@@ -13,13 +13,13 @@ from icon4py.model.atmosphere.diffusion.stencils.apply_nabla2_and_nabla4_global_
 )
 from icon4py.model.atmosphere.diffusion.stencils.apply_nabla2_and_nabla4_to_vn import (
     _apply_nabla2_and_nabla4_to_vn,
-    _apply_nabla2_and_nabla4_to_vn_cart
+    # _apply_nabla2_and_nabla4_to_vn_cart
 )
 from icon4py.model.atmosphere.diffusion.stencils.apply_nabla2_to_vn_in_lateral_boundary import (
     _apply_nabla2_to_vn_in_lateral_boundary,
-    _apply_nabla2_to_vn_in_lateral_boundary_cart
+    # _apply_nabla2_to_vn_in_lateral_boundary_cart
 )
-from icon4py.model.atmosphere.diffusion.stencils.calculate_nabla4 import _calculate_nabla4, _calculate_nabla4_cart
+from icon4py.model.atmosphere.diffusion.stencils.calculate_nabla4 import _calculate_nabla4#, _calculate_nabla4_cart
 from icon4py.model.common import dimension as dims, field_type_aliases as fa
 from icon4py.model.common.type_alias import vpfloat, wpfloat
 

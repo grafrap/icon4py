@@ -14,7 +14,7 @@ from gt4py.next.modules.translator import pack_cell_field, unpack_cell_field
 
 from icon4py.model.atmosphere.diffusion.stencils.calculate_horizontal_gradients_for_turbulence import (
     calculate_horizontal_gradients_for_turbulence,
-    calculate_horizontal_gradients_for_turbulence_cart,
+    # calculate_horizontal_gradients_for_turbulence_cart,
 )
 from icon4py.model.common import dimension as dims
 from icon4py.model.common.type_alias import vpfloat, wpfloat

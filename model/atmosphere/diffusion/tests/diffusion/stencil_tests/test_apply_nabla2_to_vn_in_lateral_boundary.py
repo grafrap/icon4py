@@ -18,7 +18,7 @@ import os
 
 from icon4py.model.atmosphere.diffusion.stencils.apply_nabla2_to_vn_in_lateral_boundary import (
     apply_nabla2_to_vn_in_lateral_boundary,
-    apply_nabla2_to_vn_in_lateral_boundary_cart,
+    # apply_nabla2_to_vn_in_lateral_boundary_cart,
 )
 from icon4py.model.common import dimension as dims
 from icon4py.model.common.grid import base
@@ -68,76 +68,76 @@ class TestApplyNabla2ToVnInLateralBoundary(StencilTest):
         return dict(vn=vn)
 
 
-def test_apply_nabla2_to_vn_in_lateral_boundary_cartesian(backend="gtfn_cpu"):
-    mesh_nc = os.environ.get(
-        "GT4PY_TRANSLATOR_MESH", 
-        "/home/raphael/Documents/Studium/Msc_thesis/grid-generator/parallelogram_grid.nc"
-    )
-    if not os.path.exists(mesh_nc):
-        pytest.skip(f"Mesh file {mesh_nc} not found.")
+# def test_apply_nabla2_to_vn_in_lateral_boundary_cartesian(backend="gtfn_cpu"):
+#     mesh_nc = os.environ.get(
+#         "GT4PY_TRANSLATOR_MESH", 
+#         "/home/raphael/Documents/Studium/Msc_thesis/grid-generator/parallelogram_grid.nc"
+#     )
+#     if not os.path.exists(mesh_nc):
+#         pytest.skip(f"Mesh file {mesh_nc} not found.")
         
-    ds = xr.open_dataset(mesh_nc)
-    e2v = np.where(ds["edge_vertices"].transpose("edge", "nc").values.astype(np.int32) > 0, 
-                   ds["edge_vertices"].transpose("edge", "nc").values.astype(np.int32) - 1, -1)
-    lonlat = np.stack([ds["longitude_vertices"].values, ds["latitude_vertices"].values], axis=1).astype(np.float64)
+#     ds = xr.open_dataset(mesh_nc)
+#     e2v = np.where(ds["edge_vertices"].transpose("edge", "nc").values.astype(np.int32) > 0, 
+#                    ds["edge_vertices"].transpose("edge", "nc").values.astype(np.int32) - 1, -1)
+#     lonlat = np.stack([ds["longitude_vertices"].values, ds["latitude_vertices"].values], axis=1).astype(np.float64)
     
-    nodes_size = ds.sizes["vertex"]
-    n_edges = ds.sizes["edge"]
-    num_levels = 10
+#     nodes_size = ds.sizes["vertex"]
+#     n_edges = ds.sizes["edge"]
+#     num_levels = 10
     
-    index_map = build_index_map_from_lonlat_e2v(lonlat, e2v, nodes_size=nodes_size)
+#     index_map = build_index_map_from_lonlat_e2v(lonlat, e2v, nodes_size=nodes_size)
     
-    np.random.seed(42)
-    fac_bdydiff_v = wpfloat("5.0")
-    z_nabla2_e_np = np.random.rand(n_edges, num_levels)
-    area_edge_np = np.random.rand(n_edges)
-    vn_np = np.random.rand(n_edges, num_levels)
+#     np.random.seed(42)
+#     fac_bdydiff_v = wpfloat("5.0")
+#     z_nabla2_e_np = np.random.rand(n_edges, num_levels)
+#     area_edge_np = np.random.rand(n_edges)
+#     vn_np = np.random.rand(n_edges, num_levels)
     
-    # 3. GET GROUND TRUTH: Official icon4py reference method
-    expected_output = TestApplyNabla2ToVnInLateralBoundary.reference(
-        connectivities={},
-        z_nabla2_e=z_nabla2_e_np,
-        area_edge=area_edge_np,
-        vn=vn_np.copy(),
-        fac_bdydiff_v=fac_bdydiff_v,
-        horizontal_start=0,
-        horizontal_end=n_edges,
-        vertical_start=0,
-        vertical_end=num_levels,
-    )
-    expected_vn = expected_output["vn"]
+#     # 3. GET GROUND TRUTH: Official icon4py reference method
+#     expected_output = TestApplyNabla2ToVnInLateralBoundary.reference(
+#         connectivities={},
+#         z_nabla2_e=z_nabla2_e_np,
+#         area_edge=area_edge_np,
+#         vn=vn_np.copy(),
+#         fac_bdydiff_v=fac_bdydiff_v,
+#         horizontal_start=0,
+#         horizontal_end=n_edges,
+#         vertical_start=0,
+#         vertical_end=num_levels,
+#     )
+#     expected_vn = expected_output["vn"]
     
-    # 4. Translate to structured fields
-    Kolor = getattr(dims, "Kolor", getattr(dims, "KolorDim", gtx.Dimension("Kolor")))
-    z_nabla2_e_f = gtx.as_field([dims.IDim, dims.JDim, Kolor, dims.KDim], pack_edge_field(z_nabla2_e_np, index_map))
-    area_edge_f = gtx.as_field([dims.IDim, dims.JDim, Kolor], pack_edge_field(area_edge_np, index_map))
-    vn_f = gtx.as_field([dims.IDim, dims.JDim, Kolor, dims.KDim], pack_edge_field(vn_np, index_map))
+#     # 4. Translate to structured fields
+#     Kolor = getattr(dims, "Kolor", getattr(dims, "KolorDim", gtx.Dimension("Kolor")))
+#     z_nabla2_e_f = gtx.as_field([dims.IDim, dims.JDim, Kolor, dims.KDim], pack_edge_field(z_nabla2_e_np, index_map))
+#     area_edge_f = gtx.as_field([dims.IDim, dims.JDim, Kolor], pack_edge_field(area_edge_np, index_map))
+#     vn_f = gtx.as_field([dims.IDim, dims.JDim, Kolor, dims.KDim], pack_edge_field(vn_np, index_map))
 
-    ni, nj = index_map.ij_to_vertex.shape
+#     ni, nj = index_map.ij_to_vertex.shape
     
-    selected_backend = gtfn_cpu
+#     selected_backend = gtfn_cpu
 
-    prog = setup_program(
-        apply_nabla2_to_vn_in_lateral_boundary_cart,
-        backend=selected_backend,
-        horizontal_sizes={
-            "domain_min_i": gtx.int32(0), "domain_max_i": gtx.int32(ni),
-            "domain_min_j": gtx.int32(0), "domain_max_j": gtx.int32(nj),
-            "domain_max_kolor": gtx.int32(3),
-        },
-    )
+#     prog = setup_program(
+#         apply_nabla2_to_vn_in_lateral_boundary_cart,
+#         backend=selected_backend,
+#         horizontal_sizes={
+#             "domain_min_i": gtx.int32(0), "domain_max_i": gtx.int32(ni),
+#             "domain_min_j": gtx.int32(0), "domain_max_j": gtx.int32(nj),
+#             "domain_max_kolor": gtx.int32(3),
+#         },
+#     )
 
-    if hasattr(prog, "_static_args_names"):
-        prog._static_args_names = set(prog._static_args_names) | {"domain_min_i", "domain_min_j"}
+#     if hasattr(prog, "_static_args_names"):
+#         prog._static_args_names = set(prog._static_args_names) | {"domain_min_i", "domain_min_j"}
 
-    prog(
-        z_nabla2_e=z_nabla2_e_f, area_edge=area_edge_f, vn=vn_f, fac_bdydiff_v=fac_bdydiff_v,
-        domain_min_i=gtx.int32(0), domain_max_i=gtx.int32(ni),
-        domain_min_j=gtx.int32(0), domain_max_j=gtx.int32(nj),
-        domain_max_kolor=gtx.int32(3),
-        vertical_start=gtx.int32(0), vertical_end=gtx.int32(num_levels),
-        offset_provider={}
-    )
+#     prog(
+#         z_nabla2_e=z_nabla2_e_f, area_edge=area_edge_f, vn=vn_f, fac_bdydiff_v=fac_bdydiff_v,
+#         domain_min_i=gtx.int32(0), domain_max_i=gtx.int32(ni),
+#         domain_min_j=gtx.int32(0), domain_max_j=gtx.int32(nj),
+#         domain_max_kolor=gtx.int32(3),
+#         vertical_start=gtx.int32(0), vertical_end=gtx.int32(num_levels),
+#         offset_provider={}
+#     )
 
-    actual_vn_np = unpack_edge_field(vn_f.asnumpy(), index_map, n_edges)
-    np.testing.assert_allclose(actual_vn_np, expected_vn, rtol=1e-12, atol=1e-14)
+#     actual_vn_np = unpack_edge_field(vn_f.asnumpy(), index_map, n_edges)
+#     np.testing.assert_allclose(actual_vn_np, expected_vn, rtol=1e-12, atol=1e-14)

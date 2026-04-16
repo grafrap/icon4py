@@ -11,7 +11,7 @@ import pytest
 
 from icon4py.model.atmosphere.diffusion.stencils.apply_nabla2_and_nabla4_to_vn import (
     apply_nabla2_and_nabla4_to_vn,
-    apply_nabla2_and_nabla4_to_vn_cart,
+    # apply_nabla2_and_nabla4_to_vn_cart,
 )
 from icon4py.model.common import dimension as dims
 from icon4py.model.common.type_alias import vpfloat, wpfloat

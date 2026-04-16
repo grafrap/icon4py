@@ -16,7 +16,7 @@ from gt4py.next.program_processors.runners.gtfn import run_gtfn_cached as gtfn_c
 
 from icon4py.model.atmosphere.diffusion.stencils.apply_diffusion_to_w_and_compute_horizontal_gradients_for_turbulence import (
     apply_diffusion_to_w_and_compute_horizontal_gradients_for_turbulence,
-    apply_diffusion_to_w_and_compute_horizontal_gradients_for_turbulence_cart,
+    # apply_diffusion_to_w_and_compute_horizontal_gradients_for_turbulence_cart,
 )
 from icon4py.model.common import dimension as dims
 from icon4py.model.common.type_alias import vpfloat, wpfloat

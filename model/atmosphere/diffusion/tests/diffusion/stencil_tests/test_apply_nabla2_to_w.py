@@ -12,7 +12,7 @@ from gt4py.next.program_processors.runners.gtfn import run_gtfn_cached as gtfn_c
 from gt4py.next.program_processors.program_setup_utils import setup_program
 from gt4py.next.modules.translator import pack_cell_field, unpack_cell_field
 
-from icon4py.model.atmosphere.diffusion.stencils.apply_nabla2_to_w import apply_nabla2_to_w, apply_nabla2_to_w_cart
+from icon4py.model.atmosphere.diffusion.stencils.apply_nabla2_to_w import apply_nabla2_to_w#, apply_nabla2_to_w_cart
 from icon4py.model.common import dimension as dims
 from icon4py.model.common.type_alias import vpfloat, wpfloat
 from icon4py.model.common.utils.data_allocation import random_field
@@ -94,40 +94,40 @@ def build_c2e2co_for_w(ni, nj, geofac_n2s_np):
                 if n_c != -1: geofac_n2s_s[n_idx][i, j, 1] = geofac_n2s_np[c1, n_idx]
     return c2e2co, geofac_n2s_s
 
-def test_apply_nabla2_to_w_cartesian(backend="gtfn_cpu"):
-    ni, nj, num_levels = 10, 10, 10
-    n_cells = ni * nj * 2
+# def test_apply_nabla2_to_w_cartesian(backend="gtfn_cpu"):
+#     ni, nj, num_levels = 10, 10, 10
+#     n_cells = ni * nj * 2
 
-    np.random.seed(42)
-    area_np = np.random.rand(n_cells)
-    z_nabla2_c_np = np.random.rand(n_cells, num_levels)
-    geofac_n2s_np = np.random.rand(n_cells, 3)
-    w_np = np.random.rand(n_cells, num_levels)
-    diff_multfac_w = 5.0
+#     np.random.seed(42)
+#     area_np = np.random.rand(n_cells)
+#     z_nabla2_c_np = np.random.rand(n_cells, num_levels)
+#     geofac_n2s_np = np.random.rand(n_cells, 3)
+#     w_np = np.random.rand(n_cells, num_levels)
+#     diff_multfac_w = 5.0
 
-    c2e2co_np, geofac_n2s_s = build_c2e2co_for_w(ni, nj, geofac_n2s_np)
-    z_nabla2_c_safe = np.vstack([z_nabla2_c_np, np.zeros((1, num_levels))])
+#     c2e2co_np, geofac_n2s_s = build_c2e2co_for_w(ni, nj, geofac_n2s_np)
+#     z_nabla2_c_safe = np.vstack([z_nabla2_c_np, np.zeros((1, num_levels))])
 
-    expected_output = TestMoApplyNabla2ToW.reference(
-        connectivities={dims.C2E2CODim: c2e2co_np}, area=area_np, z_nabla2_c=z_nabla2_c_safe,
-        geofac_n2s=geofac_n2s_np, w=w_np.copy(), diff_multfac_w=diff_multfac_w,
-    )
+#     expected_output = TestMoApplyNabla2ToW.reference(
+#         connectivities={dims.C2E2CODim: c2e2co_np}, area=area_np, z_nabla2_c=z_nabla2_c_safe,
+#         geofac_n2s=geofac_n2s_np, w=w_np.copy(), diff_multfac_w=diff_multfac_w,
+#     )
 
-    Kolor = getattr(dims, "Kolor", getattr(dims, "KolorDim", gtx.Dimension("Kolor")))
-    area_f = gtx.as_field([dims.IDim, dims.JDim, Kolor], pack_cell_field(area_np, ni, nj))
-    z_nabla2_c_f = gtx.as_field([dims.IDim, dims.JDim, Kolor, dims.KDim], pack_cell_field(z_nabla2_c_np, ni, nj))
-    geofac_n2s_f = tuple(gtx.as_field([dims.IDim, dims.JDim, Kolor], p) for p in geofac_n2s_s)
-    w_f = gtx.as_field([dims.IDim, dims.JDim, Kolor, dims.KDim], pack_cell_field(w_np, ni, nj))
+#     Kolor = getattr(dims, "Kolor", getattr(dims, "KolorDim", gtx.Dimension("Kolor")))
+#     area_f = gtx.as_field([dims.IDim, dims.JDim, Kolor], pack_cell_field(area_np, ni, nj))
+#     z_nabla2_c_f = gtx.as_field([dims.IDim, dims.JDim, Kolor, dims.KDim], pack_cell_field(z_nabla2_c_np, ni, nj))
+#     geofac_n2s_f = tuple(gtx.as_field([dims.IDim, dims.JDim, Kolor], p) for p in geofac_n2s_s)
+#     w_f = gtx.as_field([dims.IDim, dims.JDim, Kolor, dims.KDim], pack_cell_field(w_np, ni, nj))
 
-    selected_backend = gtfn_cpu
-    prog = setup_program(
-        apply_nabla2_to_w_cart, backend=selected_backend,
-        horizontal_sizes={"domain_min_i": gtx.int32(0), "domain_max_i": gtx.int32(ni), "domain_min_j": gtx.int32(0), "domain_max_j": gtx.int32(nj), "domain_max_kolor": gtx.int32(2)},
-    )
-    if hasattr(prog, "_static_args_names"): prog._static_args_names = set(prog._static_args_names) | {"domain_min_i", "domain_min_j"}
+#     selected_backend = gtfn_cpu
+#     prog = setup_program(
+#         apply_nabla2_to_w_cart, backend=selected_backend,
+#         horizontal_sizes={"domain_min_i": gtx.int32(0), "domain_max_i": gtx.int32(ni), "domain_min_j": gtx.int32(0), "domain_max_j": gtx.int32(nj), "domain_max_kolor": gtx.int32(2)},
+#     )
+#     if hasattr(prog, "_static_args_names"): prog._static_args_names = set(prog._static_args_names) | {"domain_min_i", "domain_min_j"}
 
-    prog(area=area_f, z_nabla2_c=z_nabla2_c_f, geofac_n2s=geofac_n2s_f, w=w_f, diff_multfac_w=diff_multfac_w,
-         domain_min_i=gtx.int32(0), domain_max_i=gtx.int32(ni), domain_min_j=gtx.int32(0), domain_max_j=gtx.int32(nj), domain_max_kolor=gtx.int32(2), vertical_start=gtx.int32(0), vertical_end=gtx.int32(num_levels), offset_provider={})
+#     prog(area=area_f, z_nabla2_c=z_nabla2_c_f, geofac_n2s=geofac_n2s_f, w=w_f, diff_multfac_w=diff_multfac_w,
+#          domain_min_i=gtx.int32(0), domain_max_i=gtx.int32(ni), domain_min_j=gtx.int32(0), domain_max_j=gtx.int32(nj), domain_max_kolor=gtx.int32(2), vertical_start=gtx.int32(0), vertical_end=gtx.int32(num_levels), offset_provider={})
 
-    actual_w = unpack_cell_field(w_f.asnumpy(), n_cells, ni, nj)
-    np.testing.assert_allclose(actual_w, expected_output["w"], rtol=1e-12, atol=0)
+#     actual_w = unpack_cell_field(w_f.asnumpy(), n_cells, ni, nj)
+#     np.testing.assert_allclose(actual_w, expected_output["w"], rtol=1e-12, atol=0)

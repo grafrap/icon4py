@@ -14,7 +14,7 @@ from gt4py.next.modules.translator import pack_cell_field, unpack_cell_field
 
 from icon4py.model.atmosphere.diffusion.stencils.apply_nabla2_to_w_in_upper_damping_layer import (
     apply_nabla2_to_w_in_upper_damping_layer,
-    apply_nabla2_to_w_in_upper_damping_layer_cart,
+    # apply_nabla2_to_w_in_upper_damping_layer_cart,
 )
 from icon4py.model.common import dimension as dims
 from icon4py.model.common.grid import base

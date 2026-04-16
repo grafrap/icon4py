@@ -14,7 +14,7 @@ from gt4py.next.modules.translator import pack_cell_field, unpack_cell_field, bu
 
 from icon4py.model.atmosphere.diffusion.stencils.calculate_nabla2_for_w import (
     calculate_nabla2_for_w,
-    calculate_nabla2_for_w_cart,
+    # calculate_nabla2_for_w_cart,
 )
 from icon4py.model.common import dimension as dims
 from icon4py.model.common.grid import base

@@ -8,18 +8,18 @@
 import gt4py.next as gtx
 from gt4py.next.experimental import concat_where
 
-from icon4py.model.atmosphere.diffusion.stencils.apply_nabla2_to_w import _apply_nabla2_to_w, _apply_nabla2_to_w_cart
+from icon4py.model.atmosphere.diffusion.stencils.apply_nabla2_to_w import _apply_nabla2_to_w#, _apply_nabla2_to_w_cart
 from icon4py.model.atmosphere.diffusion.stencils.apply_nabla2_to_w_in_upper_damping_layer import (
     _apply_nabla2_to_w_in_upper_damping_layer,
-    _apply_nabla2_to_w_in_upper_damping_layer_cart,
+    # _apply_nabla2_to_w_in_upper_damping_layer_cart,
 )
 from icon4py.model.atmosphere.diffusion.stencils.calculate_horizontal_gradients_for_turbulence import (
     _calculate_horizontal_gradients_for_turbulence,
-    _calculate_horizontal_gradients_for_turbulence_cart,
+    # _calculate_horizontal_gradients_for_turbulence_cart,
 )
 from icon4py.model.atmosphere.diffusion.stencils.calculate_nabla2_for_w import (
     _calculate_nabla2_for_w,
-    _calculate_nabla2_for_w_cart,
+    # _calculate_nabla2_for_w_cart,
 )
 from icon4py.model.common import field_type_aliases as fa
 from icon4py.model.common.dimension import C2E2CODim, CellDim, KDim, Kolor, IDim, JDim
