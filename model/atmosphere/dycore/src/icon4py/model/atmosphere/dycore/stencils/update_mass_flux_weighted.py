@@ -65,60 +65,60 @@ def update_mass_flux_weighted(
 
 
 
-IDim = gtx.Dimension("IDim")
-JDim = gtx.Dimension("JDim")
-# Kolor dim for up/down triangles (size 2)
-Kolor = gtx.Dimension("Kolor")
+# IDim = gtx.Dimension("IDim")
+# JDim = gtx.Dimension("JDim")
+# # Kolor dim for up/down triangles (size 2)
+# Kolor = gtx.Dimension("Kolor")
 
-@gtx.field_operator
-def _update_mass_flux_weighted_cart(
-    rho_ic: gtx.Field[[IDim, JDim, Kolor, dims.KDim], wpfloat],
-    vwind_expl_wgt: gtx.Field[[IDim, JDim, Kolor], wpfloat],
-    vwind_impl_wgt: gtx.Field[[IDim, JDim, Kolor], wpfloat],
-    w_now: gtx.Field[[IDim, JDim, Kolor, dims.KDim], wpfloat],
-    w_new: gtx.Field[[IDim, JDim, Kolor, dims.KDim], wpfloat],
-    w_concorr_c: gtx.Field[[IDim, JDim, Kolor, dims.KDim], vpfloat],
-    mass_flx_ic: gtx.Field[[IDim, JDim, Kolor, dims.KDim], wpfloat],
-    r_nsubsteps: wpfloat,
-) -> gtx.Field[[IDim, JDim, Kolor, dims.KDim], wpfloat]:
-    w_concorr_c_wp = astype(w_concorr_c, wpfloat)
+# @gtx.field_operator
+# def _update_mass_flux_weighted_cart(
+#     rho_ic: gtx.Field[[IDim, JDim, Kolor, dims.KDim], wpfloat],
+#     vwind_expl_wgt: gtx.Field[[IDim, JDim, Kolor], wpfloat],
+#     vwind_impl_wgt: gtx.Field[[IDim, JDim, Kolor], wpfloat],
+#     w_now: gtx.Field[[IDim, JDim, Kolor, dims.KDim], wpfloat],
+#     w_new: gtx.Field[[IDim, JDim, Kolor, dims.KDim], wpfloat],
+#     w_concorr_c: gtx.Field[[IDim, JDim, Kolor, dims.KDim], vpfloat],
+#     mass_flx_ic: gtx.Field[[IDim, JDim, Kolor, dims.KDim], wpfloat],
+#     r_nsubsteps: wpfloat,
+# ) -> gtx.Field[[IDim, JDim, Kolor, dims.KDim], wpfloat]:
+#     w_concorr_c_wp = astype(w_concorr_c, wpfloat)
 
-    mass_flx_ic_wp = mass_flx_ic + (
-        r_nsubsteps * rho_ic * (vwind_expl_wgt * w_now + vwind_impl_wgt * w_new - w_concorr_c_wp)
-    )
-    return mass_flx_ic_wp
+#     mass_flx_ic_wp = mass_flx_ic + (
+#         r_nsubsteps * rho_ic * (vwind_expl_wgt * w_now + vwind_impl_wgt * w_new - w_concorr_c_wp)
+#     )
+#     return mass_flx_ic_wp
 
 
 
-@gtx.program(grid_type=gtx.GridType.CARTESIAN)
-def update_mass_flux_weighted_cart(
-    rho_ic: gtx.Field[[IDim, JDim, Kolor, dims.KDim], wpfloat],
-    vwind_expl_wgt: gtx.Field[[IDim, JDim, Kolor], wpfloat],
-    vwind_impl_wgt: gtx.Field[[IDim, JDim, Kolor], wpfloat],
-    w_now: gtx.Field[[IDim, JDim, Kolor, dims.KDim], wpfloat],
-    w_new: gtx.Field[[IDim, JDim, Kolor, dims.KDim], wpfloat],
-    w_concorr_c: gtx.Field[[IDim, JDim, Kolor, dims.KDim], vpfloat],
-    mass_flx_ic: gtx.Field[[IDim, JDim, Kolor, dims.KDim], wpfloat],
-    r_nsubsteps: wpfloat,
-    horizontal_start: gtx.int32,
-    horizontal_end: gtx.int32,
-    vertical_start: gtx.int32,
-    vertical_end: gtx.int32,
-):
-    _update_mass_flux_weighted_cart(
-        rho_ic,
-        vwind_expl_wgt,
-        vwind_impl_wgt,
-        w_now,
-        w_new,
-        w_concorr_c,
-        mass_flx_ic,
-        r_nsubsteps,
-        out=mass_flx_ic,
-        domain={
-            IDim: (horizontal_start, horizontal_end),
-            JDim: (horizontal_start, horizontal_end),
-            Kolor: (0, 2),
-            dims.KDim: (vertical_start, vertical_end),
-        },
-    )
+# @gtx.program(grid_type=gtx.GridType.CARTESIAN)
+# def update_mass_flux_weighted_cart(
+#     rho_ic: gtx.Field[[IDim, JDim, Kolor, dims.KDim], wpfloat],
+#     vwind_expl_wgt: gtx.Field[[IDim, JDim, Kolor], wpfloat],
+#     vwind_impl_wgt: gtx.Field[[IDim, JDim, Kolor], wpfloat],
+#     w_now: gtx.Field[[IDim, JDim, Kolor, dims.KDim], wpfloat],
+#     w_new: gtx.Field[[IDim, JDim, Kolor, dims.KDim], wpfloat],
+#     w_concorr_c: gtx.Field[[IDim, JDim, Kolor, dims.KDim], vpfloat],
+#     mass_flx_ic: gtx.Field[[IDim, JDim, Kolor, dims.KDim], wpfloat],
+#     r_nsubsteps: wpfloat,
+#     horizontal_start: gtx.int32,
+#     horizontal_end: gtx.int32,
+#     vertical_start: gtx.int32,
+#     vertical_end: gtx.int32,
+# ):
+#     _update_mass_flux_weighted_cart(
+#         rho_ic,
+#         vwind_expl_wgt,
+#         vwind_impl_wgt,
+#         w_now,
+#         w_new,
+#         w_concorr_c,
+#         mass_flx_ic,
+#         r_nsubsteps,
+#         out=mass_flx_ic,
+#         domain={
+#             IDim: (horizontal_start, horizontal_end),
+#             JDim: (horizontal_start, horizontal_end),
+#             Kolor: (0, 2),
+#             dims.KDim: (vertical_start, vertical_end),
+#         },
+#     )

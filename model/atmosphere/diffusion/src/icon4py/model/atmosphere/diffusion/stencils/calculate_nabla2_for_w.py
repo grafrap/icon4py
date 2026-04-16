@@ -43,50 +43,50 @@ def calculate_nabla2_for_w(
         },
     )
 
-@gtx.field_operator
-def _calculate_nabla2_for_w_cart(
-    w: fa.CellKolorKField[wpfloat],
-    geofac_n2s: tuple[
-        fa.CellKolorField[wpfloat], fa.CellKolorField[wpfloat], fa.CellKolorField[wpfloat]
-    ]
-) -> fa.CellKolorKField[vpfloat]:
+# @gtx.field_operator
+# def _calculate_nabla2_for_w_cart(
+#     w: fa.CellKolorKField[wpfloat],
+#     geofac_n2s: tuple[
+#         fa.CellKolorField[wpfloat], fa.CellKolorField[wpfloat], fa.CellKolorField[wpfloat]
+#     ]
+# ) -> fa.CellKolorKField[vpfloat]:
     
-    # Kolor 0 (Up Triangle) Neighbors: (0,0,1), (0,-1,1), (-1,0,1)
-    w_0_k0 = w(Kolor + 1)
-    w_1_k0 = w(JDim - 1)(Kolor + 1)
-    w_2_k0 = w(IDim - 1)(Kolor + 1)
+#     # Kolor 0 (Up Triangle) Neighbors: (0,0,1), (0,-1,1), (-1,0,1)
+#     w_0_k0 = w(Kolor + 1)
+#     w_1_k0 = w(JDim - 1)(Kolor + 1)
+#     w_2_k0 = w(IDim - 1)(Kolor + 1)
 
-    # Kolor 1 (Down Triangle) Neighbors: (0,0,0), (0,1,0), (1,0,0)
-    w_0_k1 = w(Kolor - 1)
-    w_1_k1 = w(JDim + 1)(Kolor - 1)
-    w_2_k1 = w(IDim + 1)(Kolor - 1)
+#     # Kolor 1 (Down Triangle) Neighbors: (0,0,0), (0,1,0), (1,0,0)
+#     w_0_k1 = w(Kolor - 1)
+#     w_1_k1 = w(JDim + 1)(Kolor - 1)
+#     w_2_k1 = w(IDim + 1)(Kolor - 1)
 
-    w_0 = concat_where(Kolor == 0, w_0_k0, w_0_k1)
-    w_1 = concat_where(Kolor == 0, w_1_k0, w_1_k1)
-    w_2 = concat_where(Kolor == 0, w_2_k0, w_2_k1)
+#     w_0 = concat_where(Kolor == 0, w_0_k0, w_0_k1)
+#     w_1 = concat_where(Kolor == 0, w_1_k0, w_1_k1)
+#     w_2 = concat_where(Kolor == 0, w_2_k0, w_2_k1)
 
-    z_nabla2_c_wp = geofac_n2s[0] * w_0 + geofac_n2s[1] * w_1 + geofac_n2s[2] * w_2
+#     z_nabla2_c_wp = geofac_n2s[0] * w_0 + geofac_n2s[1] * w_1 + geofac_n2s[2] * w_2
 
-    return astype(z_nabla2_c_wp, vpfloat)
+#     return astype(z_nabla2_c_wp, vpfloat)
 
 
-@gtx.program(grid_type=gtx.GridType.CARTESIAN)
-def calculate_nabla2_for_w_cart(
-    w: fa.CellKolorKField[wpfloat],
-    geofac_n2s: tuple[
-        fa.CellKolorField[wpfloat], fa.CellKolorField[wpfloat], fa.CellKolorField[wpfloat]
-    ],
-    z_nabla2_c: fa.CellKolorKField[vpfloat],
-    domain_min_i: gtx.int32, domain_max_i: gtx.int32,
-    domain_min_j: gtx.int32, domain_max_j: gtx.int32,
-    domain_max_kolor: gtx.int32,
-    vertical_start: gtx.int32, vertical_end: gtx.int32,
-):
-    _calculate_nabla2_for_w_cart(
-        w, geofac_n2s,
-        out=z_nabla2_c,
-        domain={
-            IDim: (domain_min_i, domain_max_i), JDim: (domain_min_j, domain_max_j),
-            Kolor: (0, domain_max_kolor), KDim: (vertical_start, vertical_end),
-        },
-    )
+# @gtx.program(grid_type=gtx.GridType.CARTESIAN)
+# def calculate_nabla2_for_w_cart(
+#     w: fa.CellKolorKField[wpfloat],
+#     geofac_n2s: tuple[
+#         fa.CellKolorField[wpfloat], fa.CellKolorField[wpfloat], fa.CellKolorField[wpfloat]
+#     ],
+#     z_nabla2_c: fa.CellKolorKField[vpfloat],
+#     domain_min_i: gtx.int32, domain_max_i: gtx.int32,
+#     domain_min_j: gtx.int32, domain_max_j: gtx.int32,
+#     domain_max_kolor: gtx.int32,
+#     vertical_start: gtx.int32, vertical_end: gtx.int32,
+# ):
+#     _calculate_nabla2_for_w_cart(
+#         w, geofac_n2s,
+#         out=z_nabla2_c,
+#         domain={
+#             IDim: (domain_min_i, domain_max_i), JDim: (domain_min_j, domain_max_j),
+#             Kolor: (0, domain_max_kolor), KDim: (vertical_start, vertical_end),
+#         },
+#     )
