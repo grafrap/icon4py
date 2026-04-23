@@ -262,11 +262,11 @@ class TestApplyDivergenceDampingAndUpdateVn(test_helpers.StencilTest):
         # start_edge_nudging_level_2 = 0
         end_edge_local = grid.end_index(edge_domain(h_grid.Zone.LOCAL))
 
-        monkeypatch = request.getfixturevalue("monkeypatch")
-        lateral_margin = 9 # edge field, 4 lateral layers + 1 nudging layer
+        # monkeypatch = request.getfixturevalue("monkeypatch")
+        # lateral_margin = 9 # edge field, 4 lateral layers + 1 nudging layer
 
-        monkeypatch.setenv("GT4PY_TRANSLATOR_LATERAL", str(lateral_margin))
-        monkeypatch.setenv("GT4PY_TRANSLATOR_EDGE_LATERAL", str(1))
+        # monkeypatch.setenv("GT4PY_TRANSLATOR_LATERAL", str(lateral_margin))
+        # monkeypatch.setenv("GT4PY_TRANSLATOR_EDGE_LATERAL", str(1))
 
         # is_structured = os.environ.get("USE_STRUCTURED_BACKEND", "1") == "1"
         print(f"lateral boundary is set to " ,os.environ.get("GT4PY_TRANSLATOR_LATERAL", "1"))

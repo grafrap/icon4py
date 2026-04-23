@@ -290,10 +290,10 @@ class TestFusedVelocityAdvectionStencilsHMomentum(stencil_tests.StencilTest):
         edge_domain = h_grid.domain(dims.EdgeDim)
         horizontal_start = grid.start_index(edge_domain(h_grid.Zone.NUDGING_LEVEL_2))
         horizontal_end = grid.end_index(edge_domain(h_grid.Zone.LOCAL))
-        monkeypatch = request.getfixturevalue("monkeypatch")
-        lateral_margin = 9 # edge field, 4 lateral layers + 1 nudging layer
-        monkeypatch.setenv("GT4PY_TRANSLATOR_LATERAL", str(lateral_margin))
-        monkeypatch.setenv("GT4PY_TRANSLATOR_EDGE_LATERAL", str(1))
+        # monkeypatch = request.getfixturevalue("monkeypatch")
+        # lateral_margin = 9 # edge field, 4 lateral layers + 1 nudging layer
+        # monkeypatch.setenv("GT4PY_TRANSLATOR_LATERAL", str(lateral_margin))
+        # monkeypatch.setenv("GT4PY_TRANSLATOR_EDGE_LATERAL", str(1))
 
         return dict(
             normal_wind_advective_tendency=normal_wind_advective_tendency,
