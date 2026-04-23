@@ -153,3 +153,4 @@ img/offsetProvider_e2c.png
 err*.txt
 stencil_reference.txt
 debug_out/*
+output/*
