@@ -8,6 +8,7 @@
 import functools
 import logging
 import math
+import os
 
 from gt4py import next as gtx
 
@@ -230,7 +231,29 @@ def jablonowski_williamson(  # noqa: PLR0915 [too-many-statements]
         temperature_ndarray[:, k_index] = temperature_jw
     log.info("Newton iteration completed.")
 
-    cell_2_edge_interpolation.cell_2_edge_interpolation.with_backend(backend)(
+    cell_2_edge_program = cell_2_edge_interpolation.cell_2_edge_interpolation
+    if os.environ.get("USE_STRUCTURED_BACKEND", "0") == "1":
+        from gt4py.next.modules.cartesian_interceptor import (
+            GenericStructuredWrapper,
+            get_global_grid_mapping,
+        )
+        from gt4py.next.program_processors.runners import gtfn as gtfn_runner
+
+        e2v_conn = grid.connectivities.get("E2V")
+        e2v_array = e2v_conn.asnumpy() if e2v_conn is not None else None
+        index_map, remap_sizes = get_global_grid_mapping(e2v_override=e2v_array)
+        cell_2_edge_program = GenericStructuredWrapper(
+            operator=cell_2_edge_program,
+            backend_factory=gtfn_runner.GTFNBackendFactory,
+            index_map=index_map,
+            remap_sizes=remap_sizes,
+            allocator=allocator,
+            offset_provider=grid.connectivities,
+        )
+    else:
+        cell_2_edge_program = cell_2_edge_program.with_backend(backend)
+
+    cell_2_edge_program(
         in_field=eta_v,
         coeff=cell_2_edge_coeff,
         out_field=eta_v_at_edge,
@@ -305,7 +328,24 @@ def jablonowski_williamson(  # noqa: PLR0915 [too-many-statements]
     )
     prognostic_states = common_utils.TimeStepPair(prognostic_state_now, prognostic_state_next)
 
-    edge_2_cell_vector_rbf_interpolation.edge_2_cell_vector_rbf_interpolation.with_backend(backend)(
+    if os.environ.get("USE_STRUCTURED_BACKEND", "0") == "1":
+        from gt4py.next.modules.cartesian_interceptor import (
+            GenericStructuredWrapper,
+            get_global_grid_mapping,
+        )
+        from gt4py.next.program_processors.runners import gtfn as gtfn_runner
+        index_map, remap_sizes = get_global_grid_mapping()
+        rbf_program = GenericStructuredWrapper(
+            operator=edge_2_cell_vector_rbf_interpolation.edge_2_cell_vector_rbf_interpolation,
+            backend_factory=gtfn_runner.GTFNBackendFactory,
+            index_map=index_map,
+            remap_sizes=remap_sizes,
+            allocator=allocator,
+            offset_provider=grid.connectivities,
+        )
+    else:
+        rbf_program = edge_2_cell_vector_rbf_interpolation.edge_2_cell_vector_rbf_interpolation.with_backend(backend)
+    rbf_program(
         p_e_in=prognostic_states.current.vn,
         ptr_coeff_1=rbf_vec_coeff_c1,
         ptr_coeff_2=rbf_vec_coeff_c2,
@@ -321,7 +361,24 @@ def jablonowski_williamson(  # noqa: PLR0915 [too-many-statements]
     log.info("U, V computation completed.")
 
     perturbed_exner = data_alloc.zero_field(grid, dims.CellDim, dims.KDim, allocator=allocator)
-    gt4py_math_op.compute_difference_on_cell_k.with_backend(backend)(
+    if os.environ.get("USE_STRUCTURED_BACKEND", "0") == "1":
+        from gt4py.next.modules.cartesian_interceptor import (
+            GenericStructuredWrapper,
+            get_global_grid_mapping,
+        )
+        from gt4py.next.program_processors.runners import gtfn as gtfn_runner
+        index_map, remap_sizes = get_global_grid_mapping()
+        diff_cell_program = GenericStructuredWrapper(
+            operator=gt4py_math_op.compute_difference_on_cell_k,
+            backend_factory=gtfn_runner.GTFNBackendFactory,
+            index_map=index_map,
+            remap_sizes=remap_sizes,
+            allocator=allocator,
+            offset_provider=grid.connectivities,
+        )
+    else:
+        diff_cell_program = gt4py_math_op.compute_difference_on_cell_k.with_backend(backend)
+    diff_cell_program(
         field_a=prognostic_states.current.exner,
         field_b=metrics_field_source.get(metrics_attributes.EXNER_REF_MC),
         output_field=perturbed_exner,
@@ -329,7 +386,7 @@ def jablonowski_williamson(  # noqa: PLR0915 [too-many-statements]
         horizontal_end=num_cells,
         vertical_start=0,
         vertical_end=num_levels,
-        offset_provider={},
+        offset_provider=grid.connectivities,
     )
     log.info("perturbed_exner initialization completed.")
 

@@ -37,27 +37,32 @@ def _calculate_nabla2_and_smag_coefficients_for_vn(
         (diff_multfac_smag, u_vert, v_vert, smag_offset), wpfloat
     )
 
-    v_n = u_vert_wp(E2C2V) * primal_normal_vert_x + v_vert_wp(E2C2V) * primal_normal_vert_y
+    # Use explicit per-slot E2C2V access (matching calculate_nabla4 pattern) to
+    # avoid a map_(neighbors(E2C2V)) IR node that generates invalid C++ kolor
+    # stride lookups for 1-kolor vertex fields in the structured backend.
+    v_n_0 = u_vert_wp(E2C2V[0]) * primal_normal_vert_x[E2C2VDim(0)] + v_vert_wp(E2C2V[0]) * primal_normal_vert_y[E2C2VDim(0)]
+    v_n_1 = u_vert_wp(E2C2V[1]) * primal_normal_vert_x[E2C2VDim(1)] + v_vert_wp(E2C2V[1]) * primal_normal_vert_y[E2C2VDim(1)]
+    v_n_2 = u_vert_wp(E2C2V[2]) * primal_normal_vert_x[E2C2VDim(2)] + v_vert_wp(E2C2V[2]) * primal_normal_vert_y[E2C2VDim(2)]
+    v_n_3 = u_vert_wp(E2C2V[3]) * primal_normal_vert_x[E2C2VDim(3)] + v_vert_wp(E2C2V[3]) * primal_normal_vert_y[E2C2VDim(3)]
 
-    nabla2_of_vn = (v_n[E2C2VDim(0)] + v_n[E2C2VDim(1)] - wpfloat("2.0") * vn) * (
+    nabla2_of_vn = (v_n_0 + v_n_1 - wpfloat("2.0") * vn) * (
         inv_primal_edge_length * inv_primal_edge_length
-    ) + (v_n[E2C2VDim(2)] + v_n[E2C2VDim(3)] - wpfloat("2.0") * vn) * (
+    ) + (v_n_2 + v_n_3 - wpfloat("2.0") * vn) * (
         inv_vert_vert_length * inv_vert_vert_length
     )
     # The factor of 4 comes from the lengths in the denominator being twice those needed
     # for the diffusion stencil (https://doi.org/10.1002%2Fqj.2378).
     nabla2_of_vn = wpfloat("4.0") * nabla2_of_vn
 
-    v_t = u_vert_wp(E2C2V) * dual_normal_vert_x + v_vert_wp(E2C2V) * dual_normal_vert_y
+    v_t_0 = u_vert_wp(E2C2V[0]) * dual_normal_vert_x[E2C2VDim(0)] + v_vert_wp(E2C2V[0]) * dual_normal_vert_y[E2C2VDim(0)]
+    v_t_1 = u_vert_wp(E2C2V[1]) * dual_normal_vert_x[E2C2VDim(1)] + v_vert_wp(E2C2V[1]) * dual_normal_vert_y[E2C2VDim(1)]
+    v_t_2 = u_vert_wp(E2C2V[2]) * dual_normal_vert_x[E2C2VDim(2)] + v_vert_wp(E2C2V[2]) * dual_normal_vert_y[E2C2VDim(2)]
+    v_t_3 = u_vert_wp(E2C2V[3]) * dual_normal_vert_x[E2C2VDim(3)] + v_vert_wp(E2C2V[3]) * dual_normal_vert_y[E2C2VDim(3)]
     l_p = tangent_orientation * inv_primal_edge_length
     l_vv = inv_vert_vert_length
 
-    kh_smag_part1 = (v_n[E2C2VDim(3)] - v_n[E2C2VDim(2)]) * l_vv - (
-        v_t[E2C2VDim(1)] - v_t[E2C2VDim(0)]
-    ) * l_p
-    kh_smag_part2 = (v_n[E2C2VDim(1)] - v_n[E2C2VDim(0)]) * l_p + (
-        v_t[E2C2VDim(3)] - v_t[E2C2VDim(2)]
-    ) * l_vv
+    kh_smag_part1 = (v_n_3 - v_n_2) * l_vv - (v_t_1 - v_t_0) * l_p
+    kh_smag_part2 = (v_n_1 - v_n_0) * l_p + (v_t_3 - v_t_2) * l_vv
 
     kh_smag_wp = diff_multfac_smag_wp * sqrt(
         kh_smag_part1 * kh_smag_part1 + kh_smag_part2 * kh_smag_part2

@@ -6,6 +6,7 @@
 # Please, refer to the LICENSE file in the root directory.
 # SPDX-License-Identifier: BSD-3-Clause
 import logging
+import os
 import pathlib
 
 import gt4py.next as gtx
@@ -170,14 +171,34 @@ def model_initialization_gauss3d(  # noqa: PLR0915 [too-many-statements]
 
     eta_v = gtx.as_field((dims.CellDim, dims.KDim), eta_v_ndarray, allocator=allocator)
     eta_v_e = data_alloc.zero_field(grid, dims.EdgeDim, dims.KDim, allocator=allocator)
-    cell_2_edge_interpolation.cell_2_edge_interpolation.with_backend(backend)(
-        eta_v,
-        cell_2_edge_coeff,
-        eta_v_e,
-        end_edge_lateral_boundary_level_2,
-        end_edge_end,
-        0,
-        num_levels,
+    cell_2_edge_program = cell_2_edge_interpolation.cell_2_edge_interpolation
+    if os.environ.get("USE_STRUCTURED_BACKEND", "0") == "1":
+        from gt4py.next.modules.cartesian_interceptor import (
+            GenericStructuredWrapper,
+            get_global_grid_mapping,
+        )
+        from gt4py.next.program_processors.runners import gtfn as gtfn_runner
+
+        index_map, remap_sizes = get_global_grid_mapping()
+        cell_2_edge_program = GenericStructuredWrapper(
+            operator=cell_2_edge_program,
+            backend_factory=gtfn_runner.GTFNBackendFactory,
+            index_map=index_map,
+            remap_sizes=remap_sizes,
+            allocator=allocator,
+            offset_provider=grid.connectivities,
+        )
+    else:
+        cell_2_edge_program = cell_2_edge_program.with_backend(backend)
+
+    cell_2_edge_program(
+        in_field=eta_v,
+        coeff=cell_2_edge_coeff,
+        out_field=eta_v_e,
+        horizontal_start=end_edge_lateral_boundary_level_2,
+        horizontal_end=end_edge_end,
+        vertical_start=0,
+        vertical_end=num_levels,
         offset_provider=grid.connectivities,
     )
     log.info("Cell-to-edge eta_v computation completed.")

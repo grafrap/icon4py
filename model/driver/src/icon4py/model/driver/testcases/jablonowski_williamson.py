@@ -8,6 +8,7 @@
 import functools
 import logging
 import math
+import os
 import pathlib
 
 import gt4py.next as gtx
@@ -36,6 +37,29 @@ from icon4py.model.testing import serialbox as sb
 
 
 log = logging.getLogger(__name__)
+
+
+def _bind_program_for_mode(operator, backend, allocator, offset_provider):
+    if os.environ.get("USE_STRUCTURED_BACKEND", "0") == "1":
+        from gt4py.next.modules.cartesian_interceptor import (
+            GenericStructuredWrapper,
+            get_global_grid_mapping,
+        )
+        from gt4py.next.program_processors.runners import gtfn as gtfn_runner
+
+        e2v_conn = offset_provider.get("E2V") if offset_provider else None
+        e2v_array = e2v_conn.asnumpy() if e2v_conn is not None else None
+        index_map, remap_sizes = get_global_grid_mapping(e2v_override=e2v_array)
+        return GenericStructuredWrapper(
+            operator=operator,
+            backend_factory=gtfn_runner.GTFNBackendFactory,
+            index_map=index_map,
+            remap_sizes=remap_sizes,
+            allocator=allocator,
+            offset_provider=offset_provider,
+        )
+
+    return operator.with_backend(backend)
 
 
 def model_initialization_jabw(  # noqa: PLR0915 [too-many-statements]
@@ -226,7 +250,12 @@ def model_initialization_jabw(  # noqa: PLR0915 [too-many-statements]
 
     eta_v = gtx.as_field((dims.CellDim, dims.KDim), eta_v_ndarray, allocator=allocator)
     eta_v_e = data_alloc.zero_field(grid, dims.EdgeDim, dims.KDim, allocator=allocator)
-    cell_2_edge_interpolation.cell_2_edge_interpolation.with_backend(backend)(
+    _bind_program_for_mode(
+        cell_2_edge_interpolation.cell_2_edge_interpolation,
+        backend,
+        allocator,
+        grid.connectivities,
+    )(
         eta_v,
         cell_2_edge_coeff,
         eta_v_e,
@@ -299,7 +328,12 @@ def model_initialization_jabw(  # noqa: PLR0915 [too-many-statements]
         allocator=allocator,
     )
 
-    edge_2_cell_vector_rbf_interpolation.edge_2_cell_vector_rbf_interpolation.with_backend(backend)(
+    _bind_program_for_mode(
+        edge_2_cell_vector_rbf_interpolation.edge_2_cell_vector_rbf_interpolation,
+        backend,
+        allocator,
+        grid.connectivities,
+    )(
         vn,
         rbf_vec_coeff_c1,
         rbf_vec_coeff_c2,
@@ -315,7 +349,12 @@ def model_initialization_jabw(  # noqa: PLR0915 [too-many-statements]
     log.info("U, V computation completed.")
 
     perturbed_exner = data_alloc.zero_field(grid, dims.CellDim, dims.KDim, allocator=allocator)
-    testcases_utils.compute_perturbed_exner.with_backend(backend)(
+    _bind_program_for_mode(
+        testcases_utils.compute_perturbed_exner,
+        backend,
+        allocator,
+        {},
+    )(
         exner,
         data_provider.from_metrics_savepoint().exner_ref_mc(),
         perturbed_exner,

@@ -108,20 +108,28 @@ def _wrap_granule_programs_for_structured_backend(
             operator = attr_value.func
             static_kwargs = dict(attr_value.keywords or {})
 
-            wrapper = GenericStructuredWrapper(
-                operator=operator,
-                backend_factory=gtfn_runner.GTFNBackendFactory,
-                index_map=index_map,
-                remap_sizes=remap_sizes,
-                allocator=allocator,
-                offset_provider=grid.connectivities,
-            )
+            # model_options.setup_program may have already wrapped this as a
+            # GenericStructuredWrapper (functools.partial(wrapper, ...)).  Reuse
+            # the existing wrapper instead of creating a double-wrapped object.
+            if isinstance(operator, GenericStructuredWrapper):
+                wrapper = operator
+                param_names = _program_param_names(wrapper._operator)
+            else:
+                wrapper = GenericStructuredWrapper(
+                    operator=operator,
+                    backend_factory=gtfn_runner.GTFNBackendFactory,
+                    index_map=index_map,
+                    remap_sizes=remap_sizes,
+                    allocator=allocator,
+                    offset_provider=grid.connectivities,
+                )
+                param_names = _program_param_names(operator)
 
             adapter = _make_structured_program_adapter(
                 original_callable=attr_value,
                 wrapper=wrapper,
                 static_kwargs=static_kwargs,
-                param_names=_program_param_names(operator),
+                param_names=param_names,
             )
             setattr(granule, attr_name, adapter)
             wrapped_count += 1
