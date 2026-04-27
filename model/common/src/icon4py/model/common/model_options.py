@@ -146,7 +146,31 @@ def setup_program(
     vertical_sizes = {} if vertical_sizes is None else vertical_sizes
     offset_provider = {} if offset_provider is None else offset_provider
 
+    import os
     backend = customize_backend(program, backend)
+
+    if os.environ.get("USE_STRUCTURED_BACKEND", "0") == "1":
+        from gt4py.next.modules.cartesian_interceptor import (
+            GenericStructuredWrapper,
+            get_global_grid_mapping,
+        )
+        from gt4py.next.program_processors.runners import gtfn as gtfn_runner
+        index_map, remap_sizes = get_global_grid_mapping()
+        wrapper = GenericStructuredWrapper(
+            operator=program,
+            backend_factory=gtfn_runner.GTFNBackendFactory,
+            index_map=index_map,
+            remap_sizes=remap_sizes,
+            allocator=backend,
+            offset_provider=offset_provider,
+        )
+        return functools.partial(
+            wrapper,
+            **constant_args,
+            **horizontal_sizes,
+            **vertical_sizes,
+            offset_provider=offset_provider,
+        )
 
     bound_static_args = {k: v for k, v in constant_args.items() if gtx.is_scalar_type(v)}
     static_args_program = program.with_backend(backend)

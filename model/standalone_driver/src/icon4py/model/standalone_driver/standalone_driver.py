@@ -9,6 +9,7 @@
 import datetime
 import functools
 import logging
+import os
 import pathlib
 import types
 from collections.abc import Callable
@@ -38,6 +39,94 @@ from icon4py.model.standalone_driver import (
 
 
 log = logging.getLogger(__name__)
+
+
+def _program_param_names(program_callable: object) -> tuple[str, ...]:
+    past_stage = getattr(program_callable, "past_stage", None)
+    past_node = getattr(past_stage, "past_node", None)
+    params = getattr(past_node, "params", ())
+    names: list[str] = []
+    for param in params:
+        param_id = getattr(param, "id", None)
+        if param_id is not None:
+            names.append(str(param_id))
+    return tuple(names)
+
+
+def _make_structured_program_adapter(
+    original_callable: functools.partial,
+    wrapper: Callable[..., None],
+    static_kwargs: dict[str, object],
+    param_names: tuple[str, ...],
+) -> Callable[..., None]:
+    def _call(*args, **kwargs):
+        if args and not param_names:
+            return original_callable(*args, **kwargs)
+
+        merged_kwargs = dict(static_kwargs)
+        arg_idx = 0
+        for param_name in param_names:
+            if param_name in merged_kwargs:
+                continue
+            if arg_idx >= len(args):
+                break
+            merged_kwargs[param_name] = args[arg_idx]
+            arg_idx += 1
+
+        if arg_idx != len(args):
+            raise TypeError(
+                f"Unable to map positional args for structured call with params={param_names}."
+            )
+
+        merged_kwargs.update(kwargs)
+        return wrapper(**merged_kwargs)
+
+    return _call
+
+
+def _wrap_granule_programs_for_structured_backend(
+    granules: tuple[object, ...],
+    grid: IconGrid,
+    allocator: gtx.typing.Allocator,
+) -> None:
+    from gt4py.next.modules.cartesian_interceptor import (
+        GenericStructuredWrapper,
+        get_global_grid_mapping,
+    )
+    from gt4py.next.program_processors.runners import gtfn as gtfn_runner
+
+    e2v_conn = grid.connectivities.get("E2V")
+    e2v_array = e2v_conn.asnumpy() if e2v_conn is not None else None
+    index_map, remap_sizes = get_global_grid_mapping(e2v_override=e2v_array)
+
+    wrapped_count = 0
+    for granule in granules:
+        for attr_name, attr_value in vars(granule).items():
+            if not isinstance(attr_value, functools.partial):
+                continue
+
+            operator = attr_value.func
+            static_kwargs = dict(attr_value.keywords or {})
+
+            wrapper = GenericStructuredWrapper(
+                operator=operator,
+                backend_factory=gtfn_runner.GTFNBackendFactory,
+                index_map=index_map,
+                remap_sizes=remap_sizes,
+                allocator=allocator,
+                offset_provider=grid.connectivities,
+            )
+
+            adapter = _make_structured_program_adapter(
+                original_callable=attr_value,
+                wrapper=wrapper,
+                static_kwargs=static_kwargs,
+                param_names=_program_param_names(operator),
+            )
+            setattr(granule, attr_name, adapter)
+            wrapped_count += 1
+
+    log.info("Structured backend enabled in standalone driver: wrapped %s program callables", wrapped_count)
 
 
 class Icon4pyDriver:
@@ -662,6 +751,20 @@ def initialize_driver(
         ),
         backend=backend,
     )
+
+    if os.environ.get("USE_STRUCTURED_BACKEND", "0") == "1":
+        if "gtfn" not in backend_name:
+            log.warning(
+                "USE_STRUCTURED_BACKEND=1 requested, but backend '%s' is not GTFN. Skipping structured wrapper injection.",
+                backend_name,
+            )
+        else:
+            _wrap_granule_programs_for_structured_backend(
+                granules=(diffusion_granule, solve_nonhydro_granule, tracer_advection_granule),
+                grid=grid_manager.grid,
+                allocator=allocator,
+            )
+
     icon4py_driver = Icon4pyDriver(
         config=driver_config,
         backend=backend,

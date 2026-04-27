@@ -51,12 +51,16 @@ def get_allocator(
     raise ValueError(f"Cannot get allocator from {backend}")
 
 
-def make_custom_gtfn_backend(device: DeviceType, cached: bool = True, **_) -> gtx_typing.Backend:
+def make_custom_gtfn_backend(device: DeviceType, cached: bool = True, **kwargs) -> gtx_typing.Backend:
     on_gpu = device == GPU
+    backend_kwargs = dict(kwargs)
+    backend_kwargs.pop("gpu", None)
+    backend_kwargs.pop("cached", None)
+    backend_kwargs.setdefault("otf_workflow__cached_translation", cached)
     return gtfn.GTFNBackendFactory(
         gpu=on_gpu,
         cached=cached,
-        otf_workflow__cached_translation=cached,
+        **backend_kwargs,
     )
 
 

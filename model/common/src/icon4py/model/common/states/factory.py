@@ -621,7 +621,51 @@ class ProgramFieldProvider(FieldProvider, NeedsExchange):
         dims = self._domain_args(grid_provider.grid, grid_provider.vertical_grid)
         offset_providers = self._get_offset_providers(grid_provider.grid)
         deps.update(dims)
-        self._func.with_backend(backend)(**deps, offset_provider=offset_providers)
+
+        import os
+        if os.environ.get("USE_STRUCTURED_BACKEND", "0") == "1":
+            from gt4py.next.iterator.transforms.cart_unroll import (
+                CartesianDomainAndTypeRemapper,
+                _is_unstructured_edge_domain_stmt,
+            )
+            import gt4py.next.iterator.ir as _ir
+            # Only use GenericStructuredWrapper for programs that actually go through
+            # the structured pass (i.e. have edge-domain SetAts or edge connectivity).
+            # Cell/vertex-only programs (geometry metrics etc.) skip the structured pass
+            # and must be called with unstructured fields directly.
+            # For @gtx.program objects, inspect the GTIR via their past_stage;
+            # for @gtx.field_operator, use __gt_itir__().
+            # Get the program GTIR to inspect whether it has edge-domain SetAts.
+            # Try .gtir first (works for @gtx.program), then __gt_itir__ (for field operators).
+            prog_ir = getattr(self._func, "gtir", None)
+            if prog_ir is None:
+                try:
+                    prog_ir = self._func.__gt_itir__()
+                except Exception:
+                    prog_ir = None
+
+            # Use GenericStructuredWrapper for all programs — it handles packing/unpacking
+            # for edge, cell, and vertex fields. The structured pass compiles all programs.
+            if True:
+                from gt4py.next.modules.cartesian_interceptor import (
+                    GenericStructuredWrapper,
+                    get_global_grid_mapping,
+                )
+                from gt4py.next.program_processors.runners import gtfn as gtfn_runner
+                index_map, remap_sizes = get_global_grid_mapping()
+                wrapper = GenericStructuredWrapper(
+                    operator=self._func,
+                    backend_factory=gtfn_runner.GTFNBackendFactory,
+                    index_map=index_map,
+                    remap_sizes=remap_sizes,
+                    allocator=backend,
+                    offset_provider=offset_providers,
+                )
+                wrapper(**deps, offset_provider=offset_providers)
+            else:
+                self._func.with_backend(backend)(**deps, offset_provider=offset_providers)
+        else:
+            self._func.with_backend(backend)(**deps, offset_provider=offset_providers)
 
     @property
     def fields(self) -> Mapping[str, state_utils.FieldType]:
