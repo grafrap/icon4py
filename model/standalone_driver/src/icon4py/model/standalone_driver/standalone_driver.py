@@ -93,6 +93,7 @@ def _wrap_granule_programs_for_structured_backend(
         GenericStructuredWrapper,
         get_global_grid_mapping,
     )
+    from gt4py.next.modules.translator import build_cell_ijk_maps
     from gt4py.next.program_processors.runners import gtfn as gtfn_runner
 
     e2v_conn = grid.connectivities.get("E2V")
@@ -113,6 +114,20 @@ def _wrap_granule_programs_for_structured_backend(
             # the existing wrapper instead of creating a double-wrapped object.
             if isinstance(operator, GenericStructuredWrapper):
                 wrapper = operator
+                # If setup_program created the wrapper without connectivity (e.g. copy_field),
+                # inject cell mapping now using the full grid connectivities.
+                if wrapper.cell_to_ijk is None and "C2V" in grid.connectivities:
+                    import numpy as np
+                    c2v_np = grid.connectivities["C2V"].asnumpy()
+                    wrapper.cell_to_ijk, wrapper.ijk_to_cell = build_cell_ijk_maps(
+                        c2v_np, wrapper.index_map
+                    )
+                    # Also inject cell_to_ijk into the symbolic_domain_sizes_base so
+                    # the compiler knows about cell structure.
+                    if hasattr(wrapper, "_symbolic_domain_sizes_base"):
+                        wrapper._symbolic_domain_sizes_base["cell_to_ijk"] = [
+                            (int(i), int(j), int(k)) for i, j, k in np.asarray(wrapper.cell_to_ijk)
+                        ]
                 param_names = _program_param_names(wrapper._operator)
             else:
                 wrapper = GenericStructuredWrapper(
