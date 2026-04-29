@@ -570,7 +570,7 @@ def configure_logging(
         ],
     )
     driver_module_name = __name__[: __name__.rindex(".")]
-    logging.getLogger("icon4py.model").setLevel(_LOGGING_LEVELS[logging_level])
+    logging.getLogger("icon4py.model").setLevel(_LOGGING_LEVELS[logging_level.lower()])
     logging.getLogger(driver_module_name).setLevel(logging.DEBUG)
     logging.getLogger("filelock").setLevel(logging.WARNING)
     logging.getLogger("factory.generate").setLevel(logging.WARNING)

@@ -48,6 +48,209 @@ from icon4py.model.standalone_driver.testcases import utils as testcases_utils
 log = logging.getLogger(__name__)
 
 
+def gaussian_bump(  # noqa: PLR0915
+    grid: icon_grid.IconGrid,
+    geometry_field_source: grid_geometry.GridGeometry,
+    interpolation_field_source: interpolation_factory.InterpolationFieldsFactory,
+    metrics_field_source: metrics_factory.MetricsFieldsFactory,
+    backend: gtx.typing.Backend | None,
+    lowest_layer_thickness: float,
+    model_top_height: float,
+    stretch_factor: float,
+    damping_height: float,
+) -> driver_states.DriverStates:
+    """
+    Gaussian bump initial condition for structured backend validation.
+
+    Sets theta_v = theta_ref_mc + 1 K * Gaussian(cell_lat, cell_lon),
+    vn = 10 m/s * Gaussian(edge_lat, edge_lon), w = 0.
+    Derives exner and rho from a hydrostatically balanced reference state
+    then applies the standard hydrostatic adjustment.
+    """
+    allocator = model_backends.get_allocator(backend)
+    xp = data_alloc.import_array_ns(allocator)
+
+    theta_ref_mc = metrics_field_source.get(metrics_attributes.THETA_REF_MC).ndarray
+    theta_ref_ic = metrics_field_source.get(metrics_attributes.THETA_REF_IC).ndarray
+    exner_ref_mc = metrics_field_source.get(metrics_attributes.EXNER_REF_MC).ndarray
+    d_exner_dz_ref_ic = metrics_field_source.get(metrics_attributes.D_EXNER_DZ_REF_IC).ndarray
+    wgtfac_c = metrics_field_source.get(metrics_attributes.WGTFAC_C).ndarray
+    ddqz_z_half = metrics_field_source.get(metrics_attributes.DDQZ_Z_HALF).ndarray
+
+    cell_lat = geometry_field_source.get(geometry_meta.CELL_LAT).ndarray
+    cell_lon = geometry_field_source.get(geometry_meta.CELL_LON).ndarray
+    edge_lat = geometry_field_source.get(geometry_meta.EDGE_LAT).ndarray
+    edge_lon = geometry_field_source.get(geometry_meta.EDGE_LON).ndarray
+
+    lat0 = float(xp.mean(cell_lat))
+    lon0 = float(xp.mean(cell_lon))
+    # sigma: average of half-spread in lat and lon
+    sigma = float(xp.std(cell_lat)) * 0.5 + float(xp.std(cell_lon)) * 0.5
+
+    gauss_c = xp.exp(
+        -0.5 * (((cell_lat - lat0) / sigma) ** 2 + ((cell_lon - lon0) / sigma) ** 2)
+    )  # [n_cells]
+    gauss_e = xp.exp(
+        -0.5 * (((edge_lat - lat0) / sigma) ** 2 + ((edge_lon - lon0) / sigma) ** 2)
+    )  # [n_edges]
+
+    num_cells = grid.num_cells
+    num_levels = grid.num_levels
+
+    prognostic_state_now = prognostics.initialize_prognostic_state(grid=grid, allocator=allocator)
+    diagnostic_state = diagnostics.initialize_diagnostic_state(grid=grid, allocator=allocator)
+
+    theta_v_ndarray = prognostic_state_now.theta_v.ndarray
+    exner_ndarray = prognostic_state_now.exner.ndarray
+    rho_ndarray = prognostic_state_now.rho.ndarray
+
+    diagnostic_state.pressure_ifc.ndarray[:, -1] = ta.wpfloat("100000.0")
+
+    # 1 K Gaussian perturbation on top of the reference virtual potential temperature
+    theta_v_ndarray[:, :] = theta_ref_mc + ta.wpfloat("1.0") * gauss_c[:, None]
+    exner_ndarray[:, :] = exner_ref_mc
+    rho_ndarray[:, :] = (
+        exner_ndarray ** phy_const.CVD_O_RD * phy_const.P0REF / (phy_const.RD * theta_v_ndarray)
+    )
+
+    functools.partial(testcases_utils.apply_hydrostatic_adjustment_ndarray, array_ns=xp)(
+        rho=rho_ndarray,
+        exner=exner_ndarray,
+        theta_v=theta_v_ndarray,
+        exner_ref_mc=exner_ref_mc,
+        d_exner_dz_ref_ic=d_exner_dz_ref_ic,
+        theta_ref_mc=theta_ref_mc,
+        theta_ref_ic=theta_ref_ic,
+        wgtfac_c=wgtfac_c,
+        ddqz_z_half=ddqz_z_half,
+        num_levels=num_levels,
+    )
+
+    diagnostic_state.temperature.ndarray[:, :] = theta_v_ndarray * exner_ndarray
+    diagnostic_state.pressure.ndarray[:, :] = (
+        phy_const.P0REF * exner_ndarray ** phy_const.CPD_O_RD
+    )
+
+    # 10 m/s Gaussian normal wind at edges
+    prognostic_state_now.vn.ndarray[:, :] = ta.wpfloat("10.0") * gauss_e[:, None]
+    # w stays zero
+
+    log.info("Gaussian bump thermodynamics initialized.")
+
+    prognostic_state_next = prognostics.PrognosticState(
+        vn=data_alloc.as_field(prognostic_state_now.vn, allocator=allocator),
+        w=data_alloc.as_field(prognostic_state_now.w, allocator=allocator),
+        exner=data_alloc.as_field(prognostic_state_now.exner, allocator=allocator),
+        rho=data_alloc.as_field(prognostic_state_now.rho, allocator=allocator),
+        theta_v=data_alloc.as_field(prognostic_state_now.theta_v, allocator=allocator),
+    )
+    prognostic_states = common_utils.TimeStepPair(prognostic_state_now, prognostic_state_next)
+
+    rbf_vec_coeff_c1 = interpolation_field_source.get(interpolation_attributes.RBF_VEC_COEFF_C1)
+    rbf_vec_coeff_c2 = interpolation_field_source.get(interpolation_attributes.RBF_VEC_COEFF_C2)
+
+    cell_domain = h_grid.domain(dims.CellDim)
+    end_cell_lateral_boundary_level_2 = grid.end_index(
+        cell_domain(h_grid.Zone.LATERAL_BOUNDARY_LEVEL_2)
+    )
+    end_cell_end = grid.end_index(cell_domain(h_grid.Zone.END))
+
+    if os.environ.get("USE_STRUCTURED_BACKEND", "0") == "1":
+        from gt4py.next.modules.cartesian_interceptor import (
+            GenericStructuredWrapper,
+            get_global_grid_mapping,
+        )
+        from gt4py.next.program_processors.runners import gtfn as gtfn_runner
+
+        index_map, remap_sizes = get_global_grid_mapping()
+        rbf_program = GenericStructuredWrapper(
+            operator=edge_2_cell_vector_rbf_interpolation.edge_2_cell_vector_rbf_interpolation,
+            backend_factory=gtfn_runner.GTFNBackendFactory,
+            index_map=index_map,
+            remap_sizes=remap_sizes,
+            allocator=allocator,
+            offset_provider=grid.connectivities,
+        )
+    else:
+        rbf_program = edge_2_cell_vector_rbf_interpolation.edge_2_cell_vector_rbf_interpolation.with_backend(backend)
+
+    rbf_program(
+        p_e_in=prognostic_states.current.vn,
+        ptr_coeff_1=rbf_vec_coeff_c1,
+        ptr_coeff_2=rbf_vec_coeff_c2,
+        p_u_out=diagnostic_state.u,
+        p_v_out=diagnostic_state.v,
+        horizontal_start=end_cell_lateral_boundary_level_2,
+        horizontal_end=end_cell_end,
+        vertical_start=0,
+        vertical_end=num_levels,
+        offset_provider=grid.connectivities,
+    )
+    log.info("RBF u/v interpolation completed.")
+
+    perturbed_exner = data_alloc.zero_field(grid, dims.CellDim, dims.KDim, allocator=allocator)
+
+    if os.environ.get("USE_STRUCTURED_BACKEND", "0") == "1":
+        from gt4py.next.modules.cartesian_interceptor import (
+            GenericStructuredWrapper,
+            get_global_grid_mapping,
+        )
+        from gt4py.next.program_processors.runners import gtfn as gtfn_runner
+
+        index_map, remap_sizes = get_global_grid_mapping()
+        diff_cell_program = GenericStructuredWrapper(
+            operator=gt4py_math_op.compute_difference_on_cell_k,
+            backend_factory=gtfn_runner.GTFNBackendFactory,
+            index_map=index_map,
+            remap_sizes=remap_sizes,
+            allocator=allocator,
+            offset_provider=grid.connectivities,
+        )
+    else:
+        diff_cell_program = gt4py_math_op.compute_difference_on_cell_k.with_backend(backend)
+
+    diff_cell_program(
+        field_a=prognostic_states.current.exner,
+        field_b=metrics_field_source.get(metrics_attributes.EXNER_REF_MC),
+        output_field=perturbed_exner,
+        horizontal_start=0,
+        horizontal_end=num_cells,
+        vertical_start=0,
+        vertical_end=num_levels,
+        offset_provider=grid.connectivities,
+    )
+    log.info("perturbed_exner initialization completed.")
+
+    diffusion_diagnostic_state = diffusion_states.initialize_diffusion_diagnostic_state(
+        grid=grid, allocator=allocator
+    )
+    solve_nonhydro_diagnostic_state = dycore_states.initialize_solve_nonhydro_diagnostic_state(
+        perturbed_exner_at_cells_on_model_levels=perturbed_exner,
+        grid=grid,
+        allocator=allocator,
+    )
+    prep_adv = dycore_states.initialize_prep_advection(grid=grid, allocator=allocator)
+    tracer_advection_diagnostic_state = advection_states.initialize_advection_diagnostic_state(
+        grid=grid, allocator=allocator
+    )
+    prep_tracer_adv = advection_states.AdvectionPrepAdvState(
+        vn_traj=data_alloc.zero_field(grid, dims.EdgeDim, dims.KDim, allocator=allocator),
+        mass_flx_me=data_alloc.zero_field(grid, dims.EdgeDim, dims.KDim, allocator=allocator),
+        mass_flx_ic=data_alloc.zero_field(grid, dims.CellDim, dims.KDim, allocator=allocator),
+    )
+    log.info("Gaussian bump initialization completed.")
+
+    return driver_states.DriverStates(
+        prep_advection_prognostic=prep_adv,
+        solve_nonhydro_diagnostic=solve_nonhydro_diagnostic_state,
+        prep_tracer_advection_prognostic=prep_tracer_adv,
+        tracer_advection_diagnostic=tracer_advection_diagnostic_state,
+        diffusion_diagnostic=diffusion_diagnostic_state,
+        prognostics=prognostic_states,
+        diagnostic=diagnostic_state,
+    )
+
+
 def jablonowski_williamson(  # noqa: PLR0915 [too-many-statements]
     grid: icon_grid.IconGrid,
     geometry_field_source: grid_geometry.GridGeometry,

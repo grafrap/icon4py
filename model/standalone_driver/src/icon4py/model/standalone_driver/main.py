@@ -9,6 +9,7 @@ import logging
 import pathlib
 from typing import Annotated
 
+import numpy as np
 import typer
 
 from icon4py.model.common import model_backends
@@ -17,6 +18,36 @@ from icon4py.model.standalone_driver.testcases import initial_condition
 
 
 log = logging.getLogger(__name__)
+
+
+def _save_prognostic_fields(
+    ds: driver_states.DriverStates,
+    output_path: pathlib.Path,
+) -> None:
+    """
+    Save prognostic fields to .npy files for later comparison.
+    
+    Args:
+        ds: DriverStates containing the prognostic fields
+        output_path: Path to save the .npy files
+    """
+    output_path = pathlib.Path(output_path)
+    output_path.mkdir(parents=True, exist_ok=True)
+    
+    prog = ds.prognostics.current
+    fields = {
+        "vn": prog.vn.asnumpy(),
+        "w": prog.w.asnumpy(),
+        "theta_v": prog.theta_v.asnumpy(),
+        "exner": prog.exner.asnumpy(),
+        "rho": prog.rho.asnumpy(),
+    }
+    
+    for field_name, field_data in fields.items():
+        file_path = output_path / f"{field_name}.npy"
+        np.save(file_path, field_data)
+        log.info(f"Saved {field_name} to {file_path}")
+
 
 
 def main(
@@ -58,7 +89,7 @@ def main(
     )
 
     log.info("Generating the initial condition")
-    ds: driver_states.DriverStates = initial_condition.jablonowski_williamson(
+    ds: driver_states.DriverStates = initial_condition.gaussian_bump(
         grid=icon4py_driver.grid,
         geometry_field_source=icon4py_driver.static_field_factories.geometry_field_source,
         interpolation_field_source=icon4py_driver.static_field_factories.interpolation_field_source,
@@ -79,6 +110,10 @@ def main(
     )
 
     log.info("time loop:  DONE")
+    
+    # Save prognostic fields for comparison
+    _save_prognostic_fields(ds, output_path)
+    
     return ds
 
 
