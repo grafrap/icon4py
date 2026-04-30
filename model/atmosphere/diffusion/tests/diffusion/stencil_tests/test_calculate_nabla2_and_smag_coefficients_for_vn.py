@@ -60,7 +60,7 @@ class TestCalculateNabla2AndSmagCoefficientsForVn(stencil_tests.StencilTest):
         **kwargs,
     ) -> dict:
         e2c2v = connectivities[dims.E2C2VDim]
-        print("e2c2v", np.array2string(e2c2v, threshold=e2c2v.size))
+        # print("e2c2v", np.array2string(e2c2v, threshold=e2c2v.size))
 
         u_vert_e2c2v = u_vert[e2c2v]
         v_vert_e2c2v = v_vert[e2c2v]
