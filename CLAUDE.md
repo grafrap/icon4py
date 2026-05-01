@@ -31,7 +31,8 @@ Reduce IR size by shortening the IR at the right places (kolor-split, dead-code 
 
 | Path | Role |
 |---|---|
-| `../gt4py/src/gt4py/next/iterator/transforms/cart_unroll.py` | **Custom GT4Py IR pass** — maps unstructured domains to structured I/J/Kolor domains. Written from scratch. Contains `CartesianDomainAndTypeRemapper`, `CartesianReductionUnroller`, `KolorConstantPropagation` (disabled), and helpers. |
+| `../gt4py/src/gt4py/next/iterator/transforms/structured_backend_passes.py` | **Refactored structured backend passes** — the canonical implementation. Contains `StructuredTypeRemapper`, `SetAtRemapper`, `BroadcastAxisExpander`, `ThresholdConditionRewriter`, `SymbolicSizeInliner`, `NeighborReductionUnroller`, `KolorConstantPropagation` (optional), `CanDerefRewriter`, and `StructuredBackend` orchestrator. |
+| `../gt4py/src/gt4py/next/iterator/transforms/cart_unroll.py` | **Backward-compat shim** — re-exports `CartesianDomainAndTypeRemapper`, `CartesianReductionUnroller`, `CartUnroll` from `structured_backend_passes.py` so `pass_manager.py` and existing tests continue to work unchanged. Do not add new logic here. |
 | `../gt4py/src/gt4py/next/iterator/transforms/pass_manager.py` | GT4Py pass pipeline — modified to call `CartesianDomainAndTypeRemapper` and `CartesianReductionUnroller` under `USE_STRUCTURED_BACKEND=1` |
 | `../gt4py/src/gt4py/next/modules/cartesian_interceptor.py` | `GenericStructuredWrapper` — intercepts stencil calls, packs unstructured fields to structured layout, triggers lazy per-`horizontal_start` compilation |
 | `../gt4py/src/gt4py/next/iterator/transforms/map_dict.py` | Hard-coded structured remap table: for every connectivity (E2C2EO, E2C, E2V, V2E, C2E, …) and slot, gives the structured (di, dj, dk) offset |
@@ -69,7 +70,32 @@ The `ijk_to_edge` array (shape `[max_i, max_j, 3]`) maps `(i, j, kolor)` → fla
 
 ---
 
-## `cart_unroll.py` Architecture
+## `structured_backend_passes.py` Architecture (refactored)
+
+The canonical implementation is now in `structured_backend_passes.py`. `cart_unroll.py` is a backward-compat shim.
+
+### Passes (in execution order)
+
+| # | Class | Kind | Responsibility |
+|---|---|---|---|
+| 1 | `StructuredTypeRemapper` | **General** | Remaps `ts.FieldType` dims: Edge/Cell/Vertex → IDim/JDim/Kolor. Also remaps Program param types. |
+| 2 | `SetAtRemapper` | **General dispatcher** + entity-specialized | Remaps `unstructured_domain` → `cartesian_domain`, does per-kolor split. Dispatches to `_remap_edge_setat` (3 kolors), `_remap_cell_setat` (2 kolors), `_remap_vertex_setat` (1 kolor). |
+| 3 | `BroadcastAxisExpander` | **General** | Expands `broadcast(v, [Edge/Cell/Vertex, K])` → `broadcast(v, [IDim, JDim, Kolor, K])`. |
+| 4 | `ThresholdConditionRewriter` | **General dispatcher** + entity-specialized | Rewrites `Edge/Cell >= threshold` comparisons to per-kolor structured conditions. `_rewrite_edge_threshold`, `_rewrite_edge_range_threshold`, `_rewrite_cell_threshold`. |
+| 5 | `SymbolicSizeInliner` | **General** | Inlines symbolic sizes into `get_domain_range` / `tuple_get(get_domain_range)` expressions. |
+| 6 | `NeighborReductionUnroller` | **General** + edge-specialized kolor peeling | Unrolls `reduce(op)(neighbors(conn, it), ...)` into explicit shifts. Edge-specialized: `visit_SetAt` peels outer kolor concat_where for non-split SetAts. |
+| 7 | `KolorConstantPropagation` | **General** (optional, disabled) | Dead kolor branch elimination. |
+| 8 | `CanDerefRewriter` | **General** | Replaces `can_deref(...)` with `True`. |
+| — | `StructuredBackend` | Orchestration | Runs all passes in order; replaces `CartUnroll`. |
+
+### Dead code removed (vs old `cart_unroll.py`)
+- **Lateral clip path** (`lateral`, `lateral_bounds`, `lateral_edge`, `edge_phase_size`): superseded by mapping-based bounds — removed entirely.
+- Nested closure functions in `visit_SetAt` extracted to class methods.
+- Commented-out code and dead else-branches removed.
+
+---
+
+## `cart_unroll.py` Architecture (legacy — kept as shim only)
 
 Two sequential passes inside `CartUnroll.apply()`:
 
