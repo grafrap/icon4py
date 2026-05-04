@@ -74,6 +74,46 @@ The `ijk_to_edge` array (shape `[max_i, max_j, 3]`) maps `(i, j, kolor)` → fla
 
 The canonical implementation is now in `structured_backend_passes.py`. `cart_unroll.py` is a backward-compat shim.
 
+### Confirmed code invariants (from hypothesis tests in `test_structured_backend_passes.py`)
+
+| Invariant | Status |
+|---|---|
+| `_minus_one(ir.Literal)` branch is **live** — keep it | Confirmed live (H1) |
+| `_entity_cartesian_bounds` called `_mapping_based_axis_bounds` twice for Cell | **Fixed (S1)**: result is now cached and reused |
+| `SetAtRemapper.visit_FunCall` cartesian_domain+entity check fires for unusual inputs | Confirmed live — defensive guard kept |
+| `_build_edge_validity_masked_expr` returns `None` only when no mapping configured | Documented in docstring — `None` return is intentional |
+| `SymbolicSizeInliner` handles both `ir.Literal` and `ir.OffsetLiteral` tuple indices | **Fixed (H5b)**: `tuple_get(OffsetLiteral, make_tuple(...))` now correctly inlined |
+| Three paths in `NeighborReductionUnroller.visit_FunCall` are mutually exclusive | Confirmed — comments added documenting each path's IR pattern |
+| `_pick_symbolic_int` always receives integer-valued dicts at call sites | Confirmed — docstring added explaining role vs `_pick_size_param` |
+| `copy.deepcopy` in `_offset_add`/`_offset_sub` zero-path | **Fixed (S5)**: deepcopy removed; zero-path returns arg directly (IR nodes are value-typed) |
+
+### Dead code removed vs kept
+- **Lateral clip path** was already removed in the refactoring.
+- **`_minus_one` Literal branch**: confirmed live — NOT removed.
+- **`SetAtRemapper.visit_FunCall` cartesian_domain+entity check**: confirmed needed for unusual IR forms — NOT removed.
+- **`_offset_add`/`_offset_sub` zero-path deepcopy**: removed — the path is also unreachable for `OffsetLiteral` inputs (fast-path fires first), but the removal is correct for any future path through the zero-branch.
+
+### Pass-by-pass audit simplifications (second round)
+
+Global and per-pass simplifications applied after a full control-flow audit:
+
+| Change | What it does |
+|---|---|
+| `_UNSTRUCTURED_AXES` constant | Replaced all bare `{"Edge","Vertex","Cell"}` sets — 7 sites |
+| `_STRUCTURED_HORIZONTAL_AXES` constant | Replaced bare `{"IDim","JDim","Kolor"}` sets |
+| `_EDGE_NUDGE_THRESHOLD_ID` constant | Replaced magic string `"start_2nd_nudge_line_idx_e"` |
+| Remove `copy.deepcopy(self.generic_visit(...))` | `generic_visit` already returns new nodes; outer deepcopy was redundant (3 sites in passes 3/4/5) |
+| `_extract_index_value(expr)` helper | Deduplicates `ir.Literal`/`ir.OffsetLiteral` index extraction in `SymbolicSizeInliner` (was copy-pasted twice) |
+| `_collect_neighbor_tags` → `pre_walk_values()` | Replaced explicit recursive `_walk()` with Eve's built-in tree walker |
+| `_mapped_connection_size` condition | Removed redundant `not idx_values or` — `list(range(0)) == []` handles the empty case |
+| `_conn_name_and_is_edge_to_non_edge(key)` helper | Deduplicates conn-name extraction + `is_edge_to_non_edge` logic from Path 1, Path 3, and `_eval_list_field_at_idx` |
+| `_named_range_args(nr)` helper | Deduplicates `cpm.is_call_to(nr, "named_range") and len(nr.args) == 3` guard — 5+ sites |
+| `is_positive` simplification (ThresholdConditionRewriter) | Edge and Cell (non-halo) share same positivity rule; halo inverts with `not` |
+| `_has_sym` docstring | Clarifies early-exit via Python `or`/`any` |
+| `_get_axis_name` in domain bounds extraction | Replaced `isinstance(args[0], ir.AxisLiteral)` + `.value` direct access with the helper |
+| Widened-init comment | Documents the float64 accumulator widening invariant |
+| `and_` binary assumption comment | Documents GT4Py invariant in `KolorConstantPropagation` |
+
 ### Passes (in execution order)
 
 | # | Class | Kind | Responsibility |
@@ -210,6 +250,24 @@ python scripts/compare_arrays.py stencil_output.txt
 
 See `commands_stencils.txt` for all stencil-specific commands.
 There is also a `run_all_stencils.sh` script that runs all stencil tests sequentially, but it's recommended to run stencils individually during development for faster feedback.
+
+### Running the comparison script
+
+```bash
+cd /home/raphael/Documents/Studium/Msc_thesis/icon4py
+./scripts/run_comparison.sh              # full structured vs unstructured comparison
+./scripts/run_comparison.sh --structured-only  # only run structured backend
+```
+
+**Important**: The comparison compiles and runs the entire standalone driver, which takes several minutes per run. **Do not spin or poll** while it is running — start the script in the background (or as a long-running command), then wait for it to complete. Output is in `output/structured_run.log` and `output/unstructured_run.log`, and the final comparison summary is printed to stdout / `output/compare_out.txt`. A successful run looks like:
+
+```
+vn     : 100.00% match  max_abs=1.591e-12
+w      : 100.00% match  max_abs=0.000e+00
+...
+✓ All fields match within tolerance (99% or higher)
+```
+
 ---
 
 ## Writing Tests
