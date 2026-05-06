@@ -44,6 +44,9 @@ Reduce IR size by shortening the IR at the right places (kolor-split, dead-code 
 | `ir_out.txt` | Captured IR output (set `print_ir=True` or env var) |
 | `model/testing/src/icon4py/model/testing/stencil_tests.py` | Stencil setup for unstructured and structured test runs; This logic needs to somehow be ported to the standalone driver for end-to-end testing, but is currently only used for individual stencil tests |
 | `../gt4py/src/gt4py/next/program_processors/codegens/gtfn/gtfn_module.py` | GTFN code generator module |
+| `../gt4py/src/gt4py/next/program_processors/runners/dace/workflow/translation.py` | DaCe translation step — modified to read `symbolic_domain_sizes` from thread-local, augment `offset_provider_type` with IDim/JDim/Kolor, and remap arg types for bindings |
+| `../gt4py/src/gt4py/next/program_processors/runners/dace/program.py` | DaCe SDFGConvertible interface — modified to pass `symbolic_domain_sizes` from thread-local |
+| `../gt4py/src/gt4py/next/program_processors/runners/dace/lowering/gtir_to_sdfg_primitives.py` | DaCe GTIR→SDFG primitives — modified to handle NEVER-domain args in `translate_as_fieldop` |
 ---
 
 ## Environment Variables
@@ -240,9 +243,11 @@ All tested with `USE_STRUCTURED_BACKEND=1 PYTHONOPTIMIZE=1`:
 export USE_STRUCTURED_BACKEND=1
 export PYTHONOPTIMIZE=1
 # Always clear cache before tests (symbolic_domain_sizes keyed in OTF cache)
-rm -rf .gt4py_cache
+rm -rf .gt4py_cache ~/.gt4py_cache 2>/dev/null
 
-pytest -q <test_file> --backend=gtfn_cpu --grid ../grid-generator/parallelogram_grid.nc:<levels> --maxfail=2 -s > test_out.txt
+# IMPORTANT: Always redirect full output to test_out.txt so both Claude and the user
+# can inspect the complete log (IR prints, compilation messages, assertion details).
+pytest -q <test_file> --backend=gtfn_cpu --grid ../grid-generator/parallelogram_grid.nc:<levels> --maxfail=2 -s > test_out.txt 2>&1; tail -40 test_out.txt
 
 # Check result quality (boundary zeros are correct; interior zeros indicate bugs)
 python scripts/compare_arrays.py stencil_output.txt
@@ -365,3 +370,140 @@ The stencil used `u_vert_wp(E2C2V) * coeff` (full neighbor collection via `map_`
 - Driver reaches diffusion init and initial condition setup successfully. Further stencil issues may appear as diffusion timestep stencils compile.
 - No more lateral clip logic: only `horizontal_start` mapping-based domain bounds should be active for global bounds; other threshold params like `start_2nd_nudge_line_idx_e` do further per-kolor clipping via `_KNOWN_EDGE_THRESHOLD_PARAMS`.
 - Output: Driver output goes to `main_out.txt`.
+
+---
+
+## DaCe Backend Integration
+
+The structured backend passes (`CartesianDomainAndTypeRemapper` + `CartesianReductionUnroller`) now also run in the **DaCe backend** pipeline, in addition to the GTfn backend.
+
+### Architecture
+
+The GTfn backend uses `apply_common_transforms` (the full pass pipeline). The DaCe backend uses `apply_fieldview_transforms` (a lighter pipeline). The structured passes were added to `apply_fieldview_transforms` gated on `USE_STRUCTURED_BACKEND=1`.
+
+**DaCe compatibility findings**:
+- DaCe is **fully axis-agnostic**: `IDim`, `JDim`, `Kolor` are treated identically to `Edge`, `Cell`, `Vertex`.
+- `concat_where` → handled by `gtir_to_sdfg_concat_where.py` along any named dimension ✅
+- Cartesian shifts `shift(IDim, di)` → `_make_cartesian_shift()` fires when `offset_provider_type[key]` is a `Dimension` ✅
+- `build_sdfg_from_gtir` is dimension-agnostic ✅
+
+### Key Files Modified
+
+| File | Change |
+|---|---|
+| `../gt4py/src/gt4py/next/iterator/transforms/pass_manager.py` | `apply_fieldview_transforms`: added `symbolic_domain_sizes` param; added `NormalizeShifts` + `InlineLifts` + structured passes block under `USE_STRUCTURED_BACKEND=1`; added `expand_tuple_args` + `dead_code_elimination` after the structured block |
+| `../gt4py/src/gt4py/next/program_processors/runners/dace/workflow/translation.py` | `_generate_sdfg_without_configuring_dace`: reads `symbolic_domain_sizes` from thread-local (set by wrapper) or falls back to `GTFNTranslationStep._resolve_symbolic_domain_sizes_from_mesh_metadata()`; augments `offset_provider_type` with IDim/JDim/Kolor; passes `symbolic_domain_sizes` to `apply_fieldview_transforms`. `DaCeTranslator.__call__`: uses `StructuredTypeRemapper._cartesian_remapped_type()` on each arg type so bindings match the structured SDFG. |
+| `../gt4py/src/gt4py/next/program_processors/runners/dace/program.py` | Same `symbolic_domain_sizes` plumbing from thread-local for the SDFGConvertible interface path. |
+| `../gt4py/src/gt4py/next/modules/cartesian_interceptor.py` | Added `_compile_sds_local` thread-local + `get_compile_sds()` getter; `_get_or_compile` sets thread-local before `_setup()` and clears after; backend factory call detects DaCe via `isinstance(factory, DaCeBackendFactory)` and uses `make_dace_backend(gpu=False, cached=True, auto_optimize=False)` instead of the GTfn-specific kwargs. |
+| `../gt4py/src/gt4py/next/program_processors/runners/dace/lowering/gtir_to_sdfg_primitives.py` | `_parse_fieldop_arg`: returns `None` when `visit_SymRef` returns `None` (NEVER domain) instead of raising. `translate_as_fieldop`: filters dead (None) args and their corresponding lambda params before calling `translate_lambda_to_dataflow`. |
+| `model/testing/src/icon4py/model/testing/stencil_tests.py` | `_configured_program`: detects DaCe backend via `backend_like.get("backend_factory")` name and uses `DaCeBackendFactory` instead of `GTFNBackendFactory` for `GenericStructuredWrapper`. |
+| `model/standalone_driver/src/icon4py/model/standalone_driver/standalone_driver.py` | `_wrap_granule_programs_for_structured_backend`: added `backend_like` parameter; selects `DaCeBackendFactory` or `GTFNBackendFactory` based on backend. Guard extended from `"gtfn" not in backend_name` to also allow `"dace"`. |
+
+### Missing Prerequisites Added to `apply_fieldview_transforms`
+
+GTfn ran these before the structured passes; DaCe did not:
+
+| Pass | Why needed |
+|---|---|
+| `NormalizeShifts` | Structured passes pattern-match on canonical shift forms |
+| `InlineLifts` | Structured passes must see bare `neighbors(conn, it)` — not `lift(lambda it: ...)` wrappers |
+
+### `symbolic_domain_sizes` Flow for DaCe
+
+The `symbolic_domain_sizes` dict (containing per-kolor bounds, `horizontal_start`, `edge_to_ijk`, etc.) needs to reach `apply_fieldview_transforms` inside the DaCe pipeline.
+
+**Mechanism**: Thread-local in `cartesian_interceptor.py`:
+1. `GenericStructuredWrapper._get_or_compile(horizontal_start, extra_thresholds)` builds `sds`
+2. Sets `_compile_sds_local.current = sds` before calling `_setup()`
+3. `translation._generate_sdfg_without_configuring_dace` reads via `get_compile_sds()`
+4. Falls back to `GTFNTranslationStep._resolve_symbolic_domain_sizes_from_mesh_metadata()` when not called from wrapper (gives base mesh metadata without `horizontal_start`-specific bounds)
+
+### DaCe Backend Factory Details
+
+`GenericStructuredWrapper._get_or_compile` detects DaCe via `isinstance(self._backend_factory, type) and issubclass(self._backend_factory, DaCeBackendFactory)`. When DaCe is detected:
+- Uses `make_dace_backend(gpu=False, cached=True, auto_optimize=False)` — this correctly sets all required `DaCeTranslator` init params (`auto_optimize_args`, `async_sdfg_call`, etc.)
+- Does NOT pass `otf_workflow__bare_translation__symbolic_domain_sizes` (not supported by DaCe factory) — relies on thread-local instead
+
+For GTfn: continues to use `self._backend_factory(cached=True, otf_workflow__cached_translation=True, otf_workflow__bare_translation__symbolic_domain_sizes=sds)` as before.
+
+### Bugs Fixed in DaCe Lowering
+
+#### Bug 1: `DaCeBackendFactory` missing `auto_optimize`
+`DaCeWorkflowFactory` uses `factory.SelfAttribute("..auto_optimize")` which only resolves when the parent explicitly passes `auto_optimize`. Without it, factory-boy raises `AttributeError: The parameter 'auto_optimize' is unknown`. Calling `DaCeBackendFactory(cached=True, otf_workflow__cached_translation=True)` alone is not enough.
+
+**Fix**: Use `make_dace_backend(gpu=False, cached=True, auto_optimize=False)` which sets all required params.
+
+#### Bug 2: NEVER-domain args crash `translate_as_fieldop`
+The structured unroller generates `as_fieldop(λ __x → 0)(e_bln_c_s)` for accumulator zero-init. The lambda ignores `__x`, so domain inference marks `e_bln_c_s` as `DomainAccessDescriptor.NEVER`. `translate_symbol_ref` returns `None` for NEVER symbols. `_parse_fieldop_arg` got `None` instead of `FieldopData` → `ValueError: Expected a field, found a tuple of fields.`
+
+**Fix** in `gtir_to_sdfg_primitives.py`:
+- `_parse_fieldop_arg`: when `sdfg_builder.visit(node)` returns `None`, return `None` (don't raise)
+- `translate_as_fieldop`: before calling `translate_lambda_to_dataflow`, zip params with args and filter out pairs where `arg is None`. Create a new `Lambda` with only live params. This correctly handles `as_fieldop(λ x → 0)(f)` by stripping `x`/`f` since the body doesn't use them.
+
+#### Bug 3: SDFG array shape vs binding param type mismatch
+After the structured passes, the SDFG arrays have 4 dims (`IDim × JDim × Kolor × K`). But `DaCeTranslator.__call__` used `inp.args.args` (PAST-level, unstructured types: `Edge × K` = 2 dims) for `program_parameters` → the Python bindings generated by `_create_sdfg_bindings` used the wrong (2-dim) types → `zip(param_type.dims, sdfg_arg_desc.shape, strict=True)` failed.
+
+Root cause: `apply_fieldview_transforms` returns a NEW `itir.Program` with remapped params, but this remapped program is discarded after SDFG building. The `__call__` method still held the original (unremapped) `program` from `inp.data`. Additionally, `StructuredTypeRemapper.visit_Program` creates new `ir.Sym` objects with remapped types, but these live only in the remapped program returned by the pass.
+
+**Fix** in `DaCeTranslator.__call__`: apply `StructuredTypeRemapper._cartesian_remapped_type()` to each type in `inp.args.args` when `USE_STRUCTURED_BACKEND=1`. This remaps `Edge → [IDim, JDim, Kolor]` etc. so the binding code uses types that match the structured SDFG arrays.
+
+#### Bug 4: `offset_provider_type` missing IDim/JDim/Kolor
+After the structured passes, the IR uses `shift(IDim, di)` etc. DaCe's `_make_cartesian_shift()` fires only when `offset_provider_type[key]` is a `Dimension` object. The original `offset_provider_type` had only unstructured entries (E2C → `NeighborConnectivityType`, etc.). IDim/JDim/Kolor were absent → DaCe couldn't lower the structured shifts.
+
+**Fix** in `translation._generate_sdfg_without_configuring_dace`: augment `offset_provider_type` with `{"IDim": Dimension("IDim"), "JDim": Dimension("JDim"), "Kolor": Dimension("Kolor")}` before `build_sdfg_from_gtir`.
+
+### How to Run Stencil Tests with DaCe Backend
+
+```bash
+export USE_STRUCTURED_BACKEND=1
+export PYTHONOPTIMIZE=1
+rm -rf .gt4py_cache
+
+# C2E stencil (simple, good starting point)
+pytest -q model/atmosphere/dycore/tests/dycore/stencil_tests/test_interpolate_to_cell_center.py \
+  --backend=dace_cpu --grid ../grid-generator/parallelogram_grid.nc:5 --maxfail=1 -s
+
+# V2E stencil
+pytest -q model/atmosphere/dycore/tests/dycore/stencil_tests/test_mo_math_divrot_rot_vertex_ri_dsl.py \
+  --backend=dace_cpu --grid ../grid-generator/parallelogram_grid.nc:5 --maxfail=1 -s
+```
+
+Both confirmed passing (2026-05-06).
+
+### Bug 5 — `horizontal_start` not reaching `apply_fieldview_transforms` (DaCe thread pool)
+
+**Symptom**: Stencils with `horizontal_start > 0` (interior/nudging zones) produced wrong bounds — always `[0, max_i)` × `[0, max_j)` — and failed numerical comparison. Stencils with `horizontal_start=0` passed.
+
+**Root cause**: DaCe submits compilation to a `ThreadPoolExecutor`. `threading.local` and Python 3.10 `contextvars.ContextVar` are **NOT** inherited by thread-pool threads (ContextVar propagation to ThreadPoolExecutor was only added in Python 3.12). So `_CURRENT_COMPILE_SDS` set in the main thread was invisible in the pool thread, causing `get_compile_sds()` to return `None` → fallback to mesh metadata without `horizontal_start`.
+
+**Fix**: Replace `threading.local` / `contextvars.ContextVar` with a plain module-level global `_CURRENT_COMPILE_SDS: dict | None`. This works because the main thread is **blocked** inside `_compiled_programs()` (which waits for DaCe to finish compiling and executing), so the global is stable while the pool thread reads it — no race condition.
+
+Set the global:
+1. In `_get_or_compile`: `_CURRENT_COMPILE_SDS = sds` before `_setup()`, cleared in `finally`
+2. In `__call__`: `_CURRENT_COMPILE_SDS = _call_sds` before `_compiled_programs()`, cleared in `finally`
+
+`_sds_cache: dict[tuple, dict]` stores the sds per `(horizontal_start, extra_thresholds)` so `__call__` can look it up for subsequent calls (DaCe compilation is JIT — fired from `_compiled_programs()` on first call, not from `_setup()`).
+
+### DaCe Optimization Strategy for Structured Code
+
+**Problem**: DaCe's standard optimization passes (`gt_auto_optimize`, `gt_simplify`) are NOT safe for structured code with per-kolor split SetAts (single-element Kolor ranges like `Kolor=1:2`). Investigation found:
+
+- `gt_auto_optimize` Phase 5: `propagate_memlets_sdfg()` collapses single-element Kolor ranges to scalar indices → `InvalidSDFGEdgeError: Dimensionality mismatch`
+- `gt_auto_optimize` Phase 7 (`_gt_auto_process_dataflow_inside_maps`): `FuseHorizontalConditionBlocks`/`MoveDataflowIntoIfBody` create scalar Kolor accesses inside kolor-constrained maps → same error
+- `gt_simplify`: `CopyChainRemover` and similar transforms collapse per-kolor structure → core dump when the invalid SDFG is executed
+- Only stencils WITHOUT per-kolor split (e.g., E2C2EO stencils, or stencils with `horizontal_start=0`) can use `gt_auto_optimize`
+
+**Solution** (in `translation.py`):
+- When `USE_STRUCTURED_BACKEND=1` and `auto_optimize=True`: only call `gt_substitute_compiletime_symbols(validate=False)` — replaces constant symbols (ranges, sizes) without touching SDFG structure
+- `auto_optimize=False` still works but gives no optimization at all
+- `use_metrics=False` in `DaCeBackendFactory` call to avoid `add_instrumentation` which also calls `sdfg.validate()`
+
+**Performance**: `gt_substitute_compiletime_symbols` gives a modest speedup by replacing symbolic range expressions with concrete integers. Full map fusion and interior dataflow optimization require fixing DaCe's handling of single-element Kolor ranges (a DaCe-level fix).
+
+### What Still Needs Work for Full DaCe Integration
+
+`GenericStructuredWrapper` injection points in `standalone_driver.py` and `stencil_tests.py` now detect the backend and switch to `DaCeBackendFactory` when DaCe is requested. However:
+
+- The `_get_or_compile` DaCe path uses `make_dace_backend(auto_optimize=False)` — no SDFG auto-optimization. Future work: expose optimization options.
+- Field packing/unpacking in `GenericStructuredWrapper.__call__` is backend-agnostic (works for both GTfn and DaCe) — the wrapper packs unstructured → structured before calling the SDFG and unpacks afterward.
+- The DaCe SDFG receives structured arrays (IDim × JDim × Kolor × K shape) and the bindings correctly map them because of the Bug 3 fix above.

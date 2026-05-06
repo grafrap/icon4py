@@ -88,6 +88,7 @@ def _wrap_granule_programs_for_structured_backend(
     granules: tuple[object, ...],
     grid: IconGrid,
     allocator: gtx.typing.Allocator,
+    backend_like: object = None,
 ) -> None:
     from gt4py.next.modules.cartesian_interceptor import (
         GenericStructuredWrapper,
@@ -95,6 +96,19 @@ def _wrap_granule_programs_for_structured_backend(
     )
     from gt4py.next.modules.translator import build_cell_ijk_maps
     from gt4py.next.program_processors.runners import gtfn as gtfn_runner
+
+    _backend_factory_fn = (
+        backend_like.get("backend_factory") if isinstance(backend_like, dict) else None
+    )
+    _is_dace = (
+        _backend_factory_fn is not None
+        and "dace" in str(getattr(_backend_factory_fn, "__name__", "")).lower()
+    )
+    if _is_dace:
+        from gt4py.next.program_processors.runners.dace.workflow.backend import DaCeBackendFactory
+        _default_factory = DaCeBackendFactory
+    else:
+        _default_factory = gtfn_runner.GTFNBackendFactory
 
     e2v_conn = grid.connectivities.get("E2V")
     e2v_array = e2v_conn.asnumpy() if e2v_conn is not None else None
@@ -132,7 +146,7 @@ def _wrap_granule_programs_for_structured_backend(
             else:
                 wrapper = GenericStructuredWrapper(
                     operator=operator,
-                    backend_factory=gtfn_runner.GTFNBackendFactory,
+                    backend_factory=_default_factory,
                     index_map=index_map,
                     remap_sizes=remap_sizes,
                     allocator=allocator,
@@ -776,9 +790,9 @@ def initialize_driver(
     )
 
     if os.environ.get("USE_STRUCTURED_BACKEND", "0") == "1":
-        if "gtfn" not in backend_name:
+        if "gtfn" not in backend_name and "dace" not in backend_name:
             log.warning(
-                "USE_STRUCTURED_BACKEND=1 requested, but backend '%s' is not GTFN. Skipping structured wrapper injection.",
+                "USE_STRUCTURED_BACKEND=1 requested, but backend '%s' is not GTFN or DaCe. Skipping structured wrapper injection.",
                 backend_name,
             )
         else:
@@ -786,6 +800,7 @@ def initialize_driver(
                 granules=(diffusion_granule, solve_nonhydro_granule, tracer_advection_granule),
                 grid=grid_manager.grid,
                 allocator=allocator,
+                backend_like=driver_utils.get_backend_from_name(backend_name),
             )
 
     icon4py_driver = Icon4pyDriver(

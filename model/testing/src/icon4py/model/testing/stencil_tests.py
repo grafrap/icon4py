@@ -301,19 +301,39 @@ class StencilTest:
                 )
                 from gt4py.next.program_processors.runners import gtfn as gtfn_runner
 
-                e2v_conn = grid.connectivities.get("E2V")
-                e2v_array = e2v_conn.asnumpy() if e2v_conn is not None else None
-                index_map, remap_sizes = get_global_grid_mapping(e2v_override=e2v_array)
-                wrapper = GenericStructuredWrapper(
-                    operator=self.PROGRAM,
-                    backend_factory=gtfn_runner.GTFNBackendFactory,
-                    index_map=index_map,
-                    remap_sizes=remap_sizes,
-                    allocator=model_backends.get_allocator(backend_like),
-                    offset_provider=grid.connectivities,
+                # Select the backend factory matching the current backend.
+                _backend_factory_fn = (
+                    backend_like.get("backend_factory") if isinstance(backend_like, dict) else None
                 )
+                _is_dace = (
+                    _backend_factory_fn is not None
+                    and "dace" in str(getattr(_backend_factory_fn, "__name__", "")).lower()
+                )
+                if _is_dace:
+                    from gt4py.next.program_processors.runners.dace.workflow.backend import (
+                        DaCeBackendFactory,
+                    )
+                    _chosen_factory = DaCeBackendFactory
+                else:
+                    _chosen_factory = gtfn_runner.GTFNBackendFactory
+
+                # Reuse wrapper across test variants to avoid recompilation.
+                # Use class-level cache since pytest creates new instances per test.
+                cls = type(self)
+                if not hasattr(cls, "_structured_wrapper"):
+                    e2v_conn = grid.connectivities.get("E2V")
+                    e2v_array = e2v_conn.asnumpy() if e2v_conn is not None else None
+                    index_map, remap_sizes = get_global_grid_mapping(e2v_override=e2v_array)
+                    cls._structured_wrapper = GenericStructuredWrapper(
+                        operator=self.PROGRAM,
+                        backend_factory=_chosen_factory,
+                        index_map=index_map,
+                        remap_sizes=remap_sizes,
+                        allocator=model_backends.get_allocator(backend_like),
+                        offset_provider=grid.connectivities,
+                    )
                 return device_utils.synchronized_function(
-                    wrapper, allocator=model_backends.get_allocator(backend_like)
+                    cls._structured_wrapper, allocator=model_backends.get_allocator(backend_like)
                 )
             except Exception as exc:
                 raise RuntimeError("Failed to initialize structured stencil wrapper") from exc
