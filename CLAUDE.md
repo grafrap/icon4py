@@ -500,6 +500,43 @@ Set the global:
 
 **Performance**: `gt_substitute_compiletime_symbols` gives a modest speedup by replacing symbolic range expressions with concrete integers. Full map fusion and interior dataflow optimization require fixing DaCe's handling of single-element Kolor ranges (a DaCe-level fix).
 
+### Performance Optimizations for Structured DaCe Backend
+
+**Problem (observed)**: Benchmark measured pack+compute+unpack together. For a C2E stencil on 16×13 grid: unstructured=69μs vs structured=150ms (2000x). Root causes:
+1. Python triple-nested loops in `pack_edge_field`, `unpack_edge_field`, `pack_cell_field` etc.
+2. `pack_sparse_local_field_to_structured` uses Python loop + dict lookups (84ms/call for `e_bln_c_s`)
+3. `np.zeros` + `gtx.as_field` allocation on every call
+
+**Fix 1: Vectorized pack/unpack** (`../gt4py/src/gt4py/next/modules/translator.py`)
+
+Replaced all Python triple-nested loops with numpy fancy indexing:
+- `pack_edge_field` / `unpack_edge_field`: `valid = ijk_to_edge >= 0; out[valid] = field[ijk_to_edge[valid]]`
+- `pack_cell_field` / `unpack_cell_field` / `unpack_cell_field_from_structured`
+- `pack_vertex_field_to_structured` / `unpack_vertex_field_to_unstructured` / `pack_vertex_field`
+
+The commented-out vectorized version for 1D edge fields (line 468) already existed — extended to handle K dimension.
+
+**Fix 2: Precomputed sparse pack mapping** (`../gt4py/src/gt4py/next/modules/translator.py` + `cartesian_interceptor.py`)
+
+`pack_sparse_local_field_to_structured` (used for weight fields like `e_bln_c_s`) still required Python loops because of remap table lookups. Solution:
+- Added `precompute_sparse_pack_mapping(conn, index_map, local_dim_name, ...)` — runs the Python loop ONCE and returns 6 numpy index arrays
+- Added `apply_sparse_pack_mapping(coeff, mapping, out_shape)` — fast O(1) numpy indexing using precomputed arrays
+- Added `self._sparse_pack_mappings: dict` cache in `GenericStructuredWrapper` — builds mapping on first call, reuses for all subsequent calls
+
+**Critical bug fixed in precomputed sparse mapping**: `pack_sparse_local_field_to_structured` has a special case for `E2C` connectivity that bypasses the remap table — it directly assigns `coeff[edge, local]` → `out[edge_ijk, local]` (slot=local). The precomputed mapping in `precompute_sparse_pack_mapping` missed this special case and tried to look up cell neighbors via `cell_to_ijk`, which produced an empty mapping → all zeros. Added the E2C special case using vectorized `np.repeat`/`np.tile`. Also fixed `_neighbor_ijk` in all three locations to use `rfind("2")+1` instead of `[-1]` for the neighbor element type (fixes e.g. `C2E2CO` where `[-1]="O"` defaults to "Edge" instead of "Cell").
+
+**Result** (16×13 grid, K=5, total test duration including compilation):
+
+| Stencil | Before (dace1) | After (fix1_v2) | Speedup |
+|---|---|---|---|
+| nabla2_smag (E2C2V) | 238s | 135s | 1.8x |
+| horizontal_advection (C2E) | 23s | 15s | 1.5x |
+| avg_vn_graddiv (E2C2EO) | 153s | 118s | 1.3x |
+| advection_momentum | 414s | 235s | 1.8x |
+| interpolate_cell (C2E) | 21s | 14s | 1.5x |
+
+**Fix 3 (future): Memory layout Kolor-first** — Change `[IDim, JDim, Kolor, K]` to `[Kolor, IDim, JDim, K]` for better cache-line utilization when accessing per-kolor slices. Requires changes in `structured_backend_passes.py`, `translator.py`, and `translation.py`. Benefit scales with grid size (more important on 75×65 than 16×13).
+
 ### What Still Needs Work for Full DaCe Integration
 
 `GenericStructuredWrapper` injection points in `standalone_driver.py` and `stencil_tests.py` now detect the backend and switch to `DaCeBackendFactory` when DaCe is requested. However:
