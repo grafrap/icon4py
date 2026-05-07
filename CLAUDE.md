@@ -392,9 +392,9 @@ The GTfn backend uses `apply_common_transforms` (the full pass pipeline). The Da
 | File | Change |
 |---|---|
 | `../gt4py/src/gt4py/next/iterator/transforms/pass_manager.py` | `apply_fieldview_transforms`: added `symbolic_domain_sizes` param; added `NormalizeShifts` + `InlineLifts` + structured passes block under `USE_STRUCTURED_BACKEND=1`; added `expand_tuple_args` + `dead_code_elimination` after the structured block |
-| `../gt4py/src/gt4py/next/program_processors/runners/dace/workflow/translation.py` | `_generate_sdfg_without_configuring_dace`: reads `symbolic_domain_sizes` from thread-local (set by wrapper) or falls back to `GTFNTranslationStep._resolve_symbolic_domain_sizes_from_mesh_metadata()`; augments `offset_provider_type` with IDim/JDim/Kolor; passes `symbolic_domain_sizes` to `apply_fieldview_transforms`. `DaCeTranslator.__call__`: uses `StructuredTypeRemapper._cartesian_remapped_type()` on each arg type so bindings match the structured SDFG. |
+| `../gt4py/src/gt4py/next/program_processors/runners/dace/workflow/translation.py` | `_generate_sdfg_without_configuring_dace`: reads `symbolic_domain_sizes` from module-level global; augments `offset_provider_type` with IDim/JDim/Kolor; unified optimization via `gt_auto_optimize(disable_splitting=True, unit_strides_kind=VERTICAL)` with JSON-snapshot fallback. `DaCeTranslator.__call__`: uses `StructuredTypeRemapper._cartesian_remapped_type()` on each arg type so bindings match the structured SDFG. |
 | `../gt4py/src/gt4py/next/program_processors/runners/dace/program.py` | Same `symbolic_domain_sizes` plumbing from thread-local for the SDFGConvertible interface path. |
-| `../gt4py/src/gt4py/next/modules/cartesian_interceptor.py` | Added `_compile_sds_local` thread-local + `get_compile_sds()` getter; `_get_or_compile` sets thread-local before `_setup()` and clears after; backend factory call detects DaCe via `isinstance(factory, DaCeBackendFactory)` and uses `make_dace_backend(gpu=False, cached=True, auto_optimize=False)` instead of the GTfn-specific kwargs. |
+| `../gt4py/src/gt4py/next/modules/cartesian_interceptor.py` | Module-level global `_CURRENT_COMPILE_SDS` + `get_compile_sds()` (replaces threading.local — DaCe pool threads inherit module globals); `_get_or_compile` sets global before `_setup()`, cleared in `finally`; backend factory uses `make_dace_backend(gpu=False, cached=True, auto_optimize=True, otf_workflow__cached_translation=False, use_metrics=False)`. |
 | `../gt4py/src/gt4py/next/program_processors/runners/dace/lowering/gtir_to_sdfg_primitives.py` | `_parse_fieldop_arg`: returns `None` when `visit_SymRef` returns `None` (NEVER domain) instead of raising. `translate_as_fieldop`: filters dead (None) args and their corresponding lambda params before calling `translate_lambda_to_dataflow`. |
 | `model/testing/src/icon4py/model/testing/stencil_tests.py` | `_configured_program`: detects DaCe backend via `backend_like.get("backend_factory")` name and uses `DaCeBackendFactory` instead of `GTFNBackendFactory` for `GenericStructuredWrapper`. |
 | `model/standalone_driver/src/icon4py/model/standalone_driver/standalone_driver.py` | `_wrap_granule_programs_for_structured_backend`: added `backend_like` parameter; selects `DaCeBackendFactory` or `GTFNBackendFactory` based on backend. Guard extended from `"gtfn" not in backend_name` to also allow `"dace"`. |
@@ -486,19 +486,63 @@ Set the global:
 
 ### DaCe Optimization Strategy for Structured Code
 
-**Problem**: DaCe's standard optimization passes (`gt_auto_optimize`, `gt_simplify`) are NOT safe for structured code with per-kolor split SetAts (single-element Kolor ranges like `Kolor=1:2`). Investigation found:
+#### Key Finding: Only Phase 1 Splitting Block is Unsafe
 
-- `gt_auto_optimize` Phase 5: `propagate_memlets_sdfg()` collapses single-element Kolor ranges to scalar indices → `InvalidSDFGEdgeError: Dimensionality mismatch`
-- `gt_auto_optimize` Phase 7 (`_gt_auto_process_dataflow_inside_maps`): `FuseHorizontalConditionBlocks`/`MoveDataflowIntoIfBody` create scalar Kolor accesses inside kolor-constrained maps → same error
-- `gt_simplify`: `CopyChainRemover` and similar transforms collapse per-kolor structure → core dump when the invalid SDFG is executed
-- Only stencils WITHOUT per-kolor split (e.g., E2C2EO stencils, or stencils with `horizontal_start=0`) can use `gt_auto_optimize`
+Analysis of `auto_optimize.py` reveals that **`propagate_memlets_sdfg` is called at exactly two places** (lines 557 and 572), both inside the `if not disable_splitting:` block of `_gt_auto_process_top_level_maps`. These calls collapse single-element `Kolor:[k,k+1)` map ranges → `InvalidSDFGEdgeError`.
 
-**Solution** (in `translation.py`):
-- When `USE_STRUCTURED_BACKEND=1` and `auto_optimize=True`: only call `gt_substitute_compiletime_symbols(validate=False)` — replaces constant symbols (ranges, sizes) without touching SDFG structure
-- `auto_optimize=False` still works but gives no optimization at all
-- `use_metrics=False` in `DaCeBackendFactory` call to avoid `add_instrumentation` which also calls `sdfg.validate()`
+- **Phase 1 (non-splitting transforms)**: MapFusionVertical, MapFusionHorizontal, MapPromoter, GT4PyMapBufferElimination — all safe, no propagate_memlets.
+- **Phase 3** (`_gt_auto_process_dataflow_inside_maps`): `FuseHorizontalConditionBlocks`, `MoveDataflowIntoIfBody`, `RemoveScalarCopies` etc. — safe (no propagate_memlets). However, `FuseHorizontalConditionBlocks` hardcodes `validate=True`, so if Phase 1 map fusion creates a corrupt SDFG (dimensionality mismatch in a fusion temporary), Phase 3 will catch and raise it.
+- **Phase 4**: `gt_set_iteration_order(unit_strides_kind=VERTICAL)` + `gt_change_strides` — makes K the innermost loop for CPU cache-coherent access. Previously never ran for CPU (unit_strides_kind defaulted to None).
 
-**Performance**: `gt_substitute_compiletime_symbols` gives a modest speedup by replacing symbolic range expressions with concrete integers. Full map fusion and interior dataflow optimization require fixing DaCe's handling of single-element Kolor ranges (a DaCe-level fix).
+#### Unified Optimization Strategy (opt_v2)
+
+**File**: `../gt4py/src/gt4py/next/program_processors/runners/dace/workflow/translation.py`
+
+A single `gt_auto_optimize(disable_splitting=True, unit_strides_kind=VERTICAL, validate=False)` call is used for **all** structured stencils — no per-kolor split vs non-split branching. A JSON snapshot fallback handles the rare case where Phase 1 map fusion creates an invalid SDFG:
+
+```python
+structured_opt_args = {
+    "unit_strides_kind": common.DimensionKind.VERTICAL,
+    "disable_splitting": True,
+    "validate": False,
+    **(auto_optimize_args or {}),
+}
+sdfg_snapshot = sdfg.to_json()
+try:
+    gtx_transformations.gt_auto_optimize(sdfg, gpu=on_gpu,
+        constant_symbols=None, **structured_opt_args)
+except Exception:
+    # Restore and apply safe fallback: buffer elimination + iteration order only.
+    sdfg = dace.SDFG.from_json(sdfg_snapshot)
+    sdfg.apply_transformations_repeated(
+        gtx_transformations.GT4PyMapBufferElimination(assume_pointwise=True),
+        validate=False, validate_all=False)
+    gtx_transformations.gt_set_iteration_order(
+        sdfg, unit_strides_kind=common.DimensionKind.VERTICAL, validate=False)
+```
+
+**Known fallback stencil**: `apply_diffusion_to_vn` (E2C2V + `start_2nd_nudge_line_idx_e` threshold condition). Phase 1 `MapFusionVertical`/`Horizontal` creates a scalar/array dimensionality mismatch in the fusion temporary for this stencil. All other tested stencils use the full `gt_auto_optimize` path.
+
+#### Benchmark Results — Pytest-Benchmark Median (ms), 16×13 grid, K=5
+
+Times are total round-trip (pack + exec + unpack). `fix3` = no optimization (baseline); `opt_v1` = old conditional strategy (GT4PyMapBufferElimination + gt_simplify for per-kolor split, full gt_auto_optimize for non-split); `opt_v2` = current unified strategy.
+
+| # | Stencil | fix3 Median | opt_v1 Median | opt_v2 Median | v2 vs fix3 | v2 vs v1 |
+|---|---------|-------------|---------------|---------------|------------|---------|
+| 01 | nabla2_smag (E2C2V) | 29.33 | 29.50 | **26.60** | 1.1× ✅ | 1.1× ✅ |
+| 02 | horiz_advection (C2E) | 9.12 | 103.23 | **7.28** | 1.25× ✅ | **14.2×** ✅ |
+| 03 | extra_diffusion (C2E2CO) | 37.95 | 23.44 | **12.02** | 3.2× ✅ | 1.95× ✅ |
+| 04 | div_damping (E2C+E2C2EO) | 43.62 | 52.17 | **37.16** | 1.17× ✅ | 1.40× ✅ |
+| 05 | avg_vn_graddiv (E2C2EO+E2C2E) | 52.83 | 89.24 | **20.65** | 2.56× ✅ | **4.32×** ✅ |
+| 06 | advection_hmom (complex) | 33.25 | 31.10 | **28.27** | 1.18× ✅ | 1.10× ✅ |
+| 07 | interpolate_cell (C2E) | 9.02 | 6.72 | **5.85** | 1.54× ✅ | 1.15× ✅ |
+| 08 | cells2verts (V2C) | 4.63 | 8.08 | 6.44 | 1.39× ❌ | 1.25× ✅ |
+| 09 | rot_vertex (V2E) | 4.82 | 5.34 | **4.80** | ~same | 1.11× ✅ |
+| 10 | diffusion_vn (E2C2V) | 18.96 | 16.72 | fallback | TBD | TBD |
+
+_Note: benchmarks ran under system load — absolute values are pessimistic but relative comparisons are valid. Test 10 uses the safe fallback path (see above); re-run after fixing the MapFusion issue to measure._
+
+opt_v2 is better than opt_v1 for **all** 9 measured stencils. Test 08 (V2C, cells2verts) is 1.4× slower than the no-optimization baseline; this is a known gap — V2C has only 1 Kolor and very few cells, so map fusion overhead exceeds its benefit at this grid size.
 
 ### Performance Optimizations for Structured DaCe Backend
 
@@ -525,7 +569,7 @@ The commented-out vectorized version for 1D edge fields (line 468) already exist
 
 **Critical bug fixed in precomputed sparse mapping**: `pack_sparse_local_field_to_structured` has a special case for `E2C` connectivity that bypasses the remap table — it directly assigns `coeff[edge, local]` → `out[edge_ijk, local]` (slot=local). The precomputed mapping in `precompute_sparse_pack_mapping` missed this special case and tried to look up cell neighbors via `cell_to_ijk`, which produced an empty mapping → all zeros. Added the E2C special case using vectorized `np.repeat`/`np.tile`. Also fixed `_neighbor_ijk` in all three locations to use `rfind("2")+1` instead of `[-1]` for the neighbor element type (fixes e.g. `C2E2CO` where `[-1]="O"` defaults to "Edge" instead of "Cell").
 
-**Result** (16×13 grid, K=5, total test duration including compilation):
+**Result of Fix 1+2** (16×13 grid, K=5, total test duration including compilation):
 
 | Stencil | Before (dace1) | After (fix1_v2) | Speedup |
 |---|---|---|---|
@@ -535,12 +579,13 @@ The commented-out vectorized version for 1D edge fields (line 468) already exist
 | advection_momentum | 414s | 235s | 1.8x |
 | interpolate_cell (C2E) | 21s | 14s | 1.5x |
 
-**Fix 3 (future): Memory layout Kolor-first** — Change `[IDim, JDim, Kolor, K]` to `[Kolor, IDim, JDim, K]` for better cache-line utilization when accessing per-kolor slices. Requires changes in `structured_backend_passes.py`, `translator.py`, and `translation.py`. Benefit scales with grid size (more important on 75×65 than 16×13).
+**Fix 3 (investigated, not beneficial): Memory layout Kolor-first** — Changing `[IDim, JDim, Kolor, K]` to `[Kolor, IDim, JDim, K]` required renaming `Kolor` to `Color` (GT4Py enforces alphabetical dim ordering; "Color" < "IDim" < "JDim"). The rename itself was straightforward but changing the canonical domain order from `["IDim","JDim","Kolor"]` to `["Color","IDim","JDim"]` changed the DaCe SDFG loop nest order, producing 2–6x **regression** on all stencils. The layout change is shelved; cache efficiency on larger grids must be achieved via SDFG-level loop interchange instead.
 
 ### What Still Needs Work for Full DaCe Integration
 
-`GenericStructuredWrapper` injection points in `standalone_driver.py` and `stencil_tests.py` now detect the backend and switch to `DaCeBackendFactory` when DaCe is requested. However:
+`GenericStructuredWrapper` injection points in `standalone_driver.py` and `stencil_tests.py` now detect the backend and switch to `DaCeBackendFactory` when DaCe is requested. The `_get_or_compile` DaCe path uses `make_dace_backend(auto_optimize=True, ...)` — the conditional optimization strategy is now active.
 
-- The `_get_or_compile` DaCe path uses `make_dace_backend(auto_optimize=False)` — no SDFG auto-optimization. Future work: expose optimization options.
-- Field packing/unpacking in `GenericStructuredWrapper.__call__` is backend-agnostic (works for both GTfn and DaCe) — the wrapper packs unstructured → structured before calling the SDFG and unpacks afterward.
-- The DaCe SDFG receives structured arrays (IDim × JDim × Kolor × K shape) and the bindings correctly map them because of the Bug 3 fix above.
+Remaining gaps:
+- Field packing/unpacking is backend-agnostic (works for both GTfn and DaCe) — wrapper packs unstructured → structured before calling the SDFG.
+- `apply_diffusion_to_vn` (E2C2V + threshold) uses the JSON-snapshot fallback (GT4PyMapBufferElimination + gt_set_iteration_order only) because Phase 1 MapFusion creates a scalar/array dimensionality mismatch for this stencil. Root cause is in DaCe's `MapFusionVertical`/`MapFusionHorizontal` interaction with threshold-condition SDFGs. Once fixed upstream, this stencil will benefit from the full optimization path.
+- `cells2verts` (V2C, test 08) is 1.4× slower than the no-optimization baseline. V2C has only 1 Kolor and very few cells; map fusion overhead outweighs the benefit at 16×13 grid size. Larger grids are expected to flip this.
