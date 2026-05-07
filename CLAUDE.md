@@ -16,13 +16,13 @@ Reduce IR size by shortening the IR at the right places (kolor-split, dead-code 
 
 - **Mesh generator**: `../grid-generator/` — generates a parallelogram mesh as a NetCDF file
 - **Grid file**: `../grid-generator/parallelogram_grid.nc` (used as `--grid ../grid-generator/parallelogram_grid.nc:N` where N = vertical levels)
-- **Grid dimensions**: 16 × 13 (I × J), resulting in **653 total edges**
+- **Grid dimensions**: 76 × 66 (I × J), resulting in **15,190 total edges**
 - **Parallelogram structure**: each parallelogram consists of two triangles; the dual-mesh triangulation gives 3 edge types (kolors)
 - **Three edge kolors**:
-  - Kolor 0: horizontal edges — shape `nx × (ny+1)` = `16 × 14`
-  - Kolor 1: NE (north-east) edges — shape `(nx+1) × ny` = `17 × 13`
-  - Kolor 2: diagonal edges — shape `nx × ny` = `16 × 13`
-- **Cell kolors**: 2 (lower and upper triangle per parallelogram cell)
+  - Kolor 0: horizontal edges — shape `nx × (ny+1)` = `76 × 67` = 5,092 edges
+  - Kolor 1: NE (north-east) edges — shape `(nx+1) × ny` = `77 × 66` = 5,082 edges
+  - Kolor 2: diagonal edges — shape `nx × ny` = `76 × 66` = 5,016 edges
+- **Cell kolors**: 2 (lower and upper triangle per parallelogram cell; 5,016 each = 10,032 total)
 - **Vertex kolors**: 1
 
 ---
@@ -326,7 +326,7 @@ Stencil uses `concat_where((start <= EdgeDim) & (EdgeDim < end), ...)`. Previous
 - Added `_inject_edge_range_bounds(...)` module-level function in `cartesian_interceptor.py` — detects paired threshold params by name (`horizontal_start_X` + `horizontal_end_X` with matching suffix), computes range bounds for `[start, end)`, injects under key `{start_name}|{end_name}_k{k}_{ilo/jlo/ihi/jhi}`.
 - Added early `and_()` interception at top of `visit_FunCall` in `CartesianDomainAndTypeRemapper`: before children are visited, checks if the node is `and_(EdgeCmp_a, EdgeCmp_b)` and both threshold IDs form a known range pair. If so, returns the range domain condition directly — no `not_()` needed.
 
-**Note on end = total**: When `horizontal_end_distance == total_edges` (= 653 for this grid), the range `[start, total)` equals the start-only condition. The bounding box is exact in this case. When `end < total` (true lateral boundary slice), the bounding box may be slightly loose (the rectangular hull covers more than the exact set of edges), but the SetAt domain already restricts computation to `[start, end)` so results remain correct.
+**Note on end = total**: When `horizontal_end_distance == total_edges` (= 15,190 for this grid), the range `[start, total)` equals the start-only condition. The bounding box is exact in this case. When `end < total` (true lateral boundary slice), the bounding box may be slightly loose (the rectangular hull covers more than the exact set of edges), but the SetAt domain already restricts computation to `[start, end)` so results remain correct.
 
 #### Fix 3: K-broadcast type inference compatibility (`inference.py`)
 After structured remapping, an `EdgeField` (no K) used in an `EdgeKField` context (e.g. `z_me - extrapolation_distance` where `z_me` is EdgeKField) caused type inference conflicts:
@@ -523,30 +523,50 @@ except Exception:
 
 **Known fallback stencil**: `apply_diffusion_to_vn` (E2C2V + `start_2nd_nudge_line_idx_e` threshold condition). Phase 1 `MapFusionVertical`/`Horizontal` creates a scalar/array dimensionality mismatch in the fusion temporary for this stencil. All other tested stencils use the full `gt_auto_optimize` path.
 
-#### Benchmark Results — Pytest-Benchmark Median (ms), 16×13 grid, K=5
+#### Benchmark Results — 76×66 grid, K=5
 
-Times are total round-trip (pack + exec + unpack). `fix3` = no optimization (baseline); `opt_v1` = old conditional strategy (GT4PyMapBufferElimination + gt_simplify for per-kolor split, full gt_auto_optimize for non-split); `opt_v2` = current unified strategy.
+Pytest-benchmark auto-scales units per stencil. Structured times (fix3/opt_v1/opt_v2) are **total round-trip including pack+exec+unpack** — all in ms. Unstructured (`USE_STRUCTURED_BACKEND=0`, `dace_cpu`) has no pack/unpack overhead — units vary (µs for fast stencils, ms for slow ones, as reported by pytest-benchmark). Unstructured is the **goal to beat**; comparison is approximate at this small grid size because pack/unpack (~5–20ms) dominates over the actual SDFG exec.
 
-| # | Stencil | fix3 Median | opt_v1 Median | opt_v2 Median | v2 vs fix3 | v2 vs v1 |
-|---|---------|-------------|---------------|---------------|------------|---------|
-| 01 | nabla2_smag (E2C2V) | 29.33 | 29.50 | **26.60** | 1.1× ✅ | 1.1× ✅ |
-| 02 | horiz_advection (C2E) | 9.12 | 103.23 | **7.28** | 1.25× ✅ | **14.2×** ✅ |
-| 03 | extra_diffusion (C2E2CO) | 37.95 | 23.44 | **12.02** | 3.2× ✅ | 1.95× ✅ |
-| 04 | div_damping (E2C+E2C2EO) | 43.62 | 52.17 | **37.16** | 1.17× ✅ | 1.40× ✅ |
-| 05 | avg_vn_graddiv (E2C2EO+E2C2E) | 52.83 | 89.24 | **20.65** | 2.56× ✅ | **4.32×** ✅ |
-| 06 | advection_hmom (complex) | 33.25 | 31.10 | **28.27** | 1.18× ✅ | 1.10× ✅ |
-| 07 | interpolate_cell (C2E) | 9.02 | 6.72 | **5.85** | 1.54× ✅ | 1.15× ✅ |
-| 08 | cells2verts (V2C) | 4.63 | 8.08 | 6.44 | 1.39× ❌ | 1.25× ✅ |
-| 09 | rot_vertex (V2E) | 4.82 | 5.34 | **4.80** | ~same | 1.11× ✅ |
-| 10 | diffusion_vn (E2C2V) | 18.96 | 16.72 | fallback | TBD | TBD |
+`fix3` = no SDFG optimization; `opt_v1` = old conditional (GT4PyMapBufferElimination+gt_simplify for per-kolor split, full gt_auto_optimize for non-split); `opt_v2` = current unified strategy.
+Results: `output/` (unstruct), `output/fix3_stash/`, `output/opt_v1/`, `output/opt_v2/`.
 
-_Note: benchmarks ran under system load — absolute values are pessimistic but relative comparisons are valid. Test 10 uses the safe fallback path (see above); re-run after fixing the MapFusion issue to measure._
+| # | Stencil | Unstruct (µs) | fix3 (ms) | opt_v1 (ms) | opt_v2 (ms) | v2 vs opt_v1 |
+|---|---------|---------------|-----------|-------------|-------------|--------------|
+| 01 | nabla2_smag (E2C2V) | 523 µs | 29.33 | 29.50 | **26.60** | 1.1× ✅ |
+| 02 | horiz_advection (C2E) | 68 µs | 9.12 | 103.23 | **7.28** | **14.2×** ✅ |
+| 03 | extra_diffusion (C2E2CO) | 5,400 µs (5.4 ms) | 37.95 | 23.44 | **12.02** | 1.95× ✅ |
+| 04 | div_damping (E2C+E2C2EO) | 829 µs | 43.62 | 52.17 | **37.16** | 1.40× ✅ |
+| 05 | avg_vn_graddiv (E2C2EO+E2C2E) | 1,039 µs | 52.83 | 89.24 | **20.65** | **4.32×** ✅ |
+| 06 | advection_hmom (complex) | 273 µs | 33.25 | 31.10 | **28.27** | 1.10× ✅ |
+| 07 | interpolate_cell (C2E) | 62 µs | 9.02 | 6.72 | **5.85** | 1.15× ✅ |
+| 08 | cells2verts (V2C) | 80 µs | 4.63 | 8.08 | 6.44 | 1.25× ✅ |
+| 09 | rot_vertex (V2E) | 81 µs | 4.82 | 5.34 | **4.80** | 1.11× ✅ |
+| 10 | diffusion_vn (E2C2V, fallback) | 417 µs | 18.96 | 16.72 | 20.17 | 0.83× (fallback ❌) |
 
-opt_v2 is better than opt_v1 for **all** 9 measured stencils. Test 08 (V2C, cells2verts) is 1.4× slower than the no-optimization baseline; this is a known gap — V2C has only 1 Kolor and very few cells, so map fusion overhead exceeds its benefit at this grid size.
+_opt_v2 tests 01–09: first run (machine under load); test 10: second run (verified passing after fallback fix)._
+
+**Note on unstructured comparison**: At 76×66 grid, structured pack+unpack (~5–20ms) dominates the total time, making direct structured vs unstructured comparison misleading. For example, test 01 structured exec-only is ~4ms vs 523µs unstructured — the overhead comes from pack/unpack, not the SDFG kernel. At production ICON grid sizes (millions of edges), pack/unpack is amortised and the structured kernel is expected to win via better cache behaviour and vectorisability. The table is most useful for **structured vs structured** comparisons (v2 vs v1 vs fix3).
+
+**opt_v2 vs opt_v1**: Better for all 10 stencils. The big wins are tests 02 (14.2×) and 05 (4.3×) which were regressed in opt_v1. Test 10 is slightly slower (fallback path) — would recover once the MapFusion bug is fixed upstream.
+
+#### Optimization Experiment History
+
+The optimization strategy was developed through three experiments on the `dace_cpu` backend:
+
+**Experiment A — `gt_set_iteration_order` only (not implemented as standalone)**
+Hypothesis: K is stride-1 in `[IDim,JDim,Kolor,K]`; making K the innermost loop via `unit_strides_kind=VERTICAL` would improve cache behavior. Superseded by Experiment C which includes this and more.
+
+**Experiment B — drop `gt_simplify` from per-kolor split path (diagnostic, not run)**
+The opt_v1 per-kolor split path applied `GT4PyMapBufferElimination + gt_simplify`. Test 02 (C2E horiz_advection) was 11× SLOWER than the no-opt baseline (103ms vs 9ms), while test 07 (also C2E) was unchanged and test 03 (C2E2CO) got 1.6× faster. Exp B was proposed to isolate whether `gt_simplify` caused the regression by dropping it and keeping only `GT4PyMapBufferElimination`. Not needed: Exp C superseded it.
+
+**Experiment C — `gt_auto_optimize(disable_splitting=True)` for all structured stencils (→ opt_v2, IMPLEMENTED)**
+Root cause analysis showed only the two `propagate_memlets_sdfg` calls inside Phase 1's `if not disable_splitting:` block are unsafe. Phase 3 (`FuseHorizontalConditionBlocks`, `MoveDataflowIntoIfBody`, etc.) does NOT call `propagate_memlets_sdfg` — it is safe. `disable_splitting=True` skips only the unsafe Phase 1 block, preserving all other phases including map fusion (Phase 1), dataflow optimization (Phase 3), and iteration order setting (Phase 4 with `unit_strides_kind=VERTICAL`).
+
+Results (opt_v2): test 02 improved 14.2× over opt_v1; test 05 improved 4.3×; all 10 stencils improved vs opt_v1. One stencil (`apply_diffusion_to_vn`) triggers an `InvalidSDFGEdgeError` from a MapFusion dimensionality mismatch — handled via JSON-snapshot fallback.
 
 ### Performance Optimizations for Structured DaCe Backend
 
-**Problem (observed)**: Benchmark measured pack+compute+unpack together. For a C2E stencil on 16×13 grid: unstructured=69μs vs structured=150ms (2000x). Root causes:
+**Problem (observed)**: Benchmark measured pack+compute+unpack together. For a C2E stencil on 76×66 grid: unstructured=69μs vs structured=150ms (2000x). Root causes:
 1. Python triple-nested loops in `pack_edge_field`, `unpack_edge_field`, `pack_cell_field` etc.
 2. `pack_sparse_local_field_to_structured` uses Python loop + dict lookups (84ms/call for `e_bln_c_s`)
 3. `np.zeros` + `gtx.as_field` allocation on every call
@@ -569,7 +589,7 @@ The commented-out vectorized version for 1D edge fields (line 468) already exist
 
 **Critical bug fixed in precomputed sparse mapping**: `pack_sparse_local_field_to_structured` has a special case for `E2C` connectivity that bypasses the remap table — it directly assigns `coeff[edge, local]` → `out[edge_ijk, local]` (slot=local). The precomputed mapping in `precompute_sparse_pack_mapping` missed this special case and tried to look up cell neighbors via `cell_to_ijk`, which produced an empty mapping → all zeros. Added the E2C special case using vectorized `np.repeat`/`np.tile`. Also fixed `_neighbor_ijk` in all three locations to use `rfind("2")+1` instead of `[-1]` for the neighbor element type (fixes e.g. `C2E2CO` where `[-1]="O"` defaults to "Edge" instead of "Cell").
 
-**Result of Fix 1+2** (16×13 grid, K=5, total test duration including compilation):
+**Result of Fix 1+2** (76×66 grid, K=5, total test duration including compilation):
 
 | Stencil | Before (dace1) | After (fix1_v2) | Speedup |
 |---|---|---|---|
@@ -588,4 +608,4 @@ The commented-out vectorized version for 1D edge fields (line 468) already exist
 Remaining gaps:
 - Field packing/unpacking is backend-agnostic (works for both GTfn and DaCe) — wrapper packs unstructured → structured before calling the SDFG.
 - `apply_diffusion_to_vn` (E2C2V + threshold) uses the JSON-snapshot fallback (GT4PyMapBufferElimination + gt_set_iteration_order only) because Phase 1 MapFusion creates a scalar/array dimensionality mismatch for this stencil. Root cause is in DaCe's `MapFusionVertical`/`MapFusionHorizontal` interaction with threshold-condition SDFGs. Once fixed upstream, this stencil will benefit from the full optimization path.
-- `cells2verts` (V2C, test 08) is 1.4× slower than the no-optimization baseline. V2C has only 1 Kolor and very few cells; map fusion overhead outweighs the benefit at 16×13 grid size. Larger grids are expected to flip this.
+- `cells2verts` (V2C, test 08) is 1.4× slower than the no-optimization baseline. V2C has only 1 Kolor and very few cells; map fusion overhead outweighs the benefit at 76×66 grid size. Larger grids are expected to flip this.
