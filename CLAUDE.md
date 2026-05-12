@@ -40,6 +40,8 @@ Reduce IR size by shortening the IR at the right places (kolor-split, dead-code 
 | `model/atmosphere/dycore/tests/dycore/stencil_tests/conftest.py` | Pytest fixture that injects `GenericStructuredWrapper` for dycore stencil tests |
 | `model/atmosphere/diffusion/tests/diffusion/stencil_tests/conftest.py` | Same for diffusion stencil tests |
 | `scripts/compare_arrays.py` | Visualises 3-grid (kolor 0/1/2) match map: 0 = mismatch, 1 = match; boundary zeros are expected padding |
+| `scripts/extract_timing_stats.py` | Reads `[timing]` lines from benchmark output files, skips first call (JIT warmup), computes min/max/mean/stddev/median of exec times per stencil. Appends stats block to each file and writes `timing_results.txt` to the folder. Usage: `python3 scripts/extract_timing_stats.py output/opt_v3fd/` |
+| `scripts/compare_timing_results.py` | Compares two `timing_results.txt` files (generating them via `extract_timing_stats.py` if absent). Outputs a table of stencil name, median1, median2, abs diff, and ratio. Ratio < 1 means folder2 is faster. Writes result to `output/comparison/<folder1>_vs_<folder2>.txt`. Usage: `python3 scripts/compare_timing_results.py output/opt_v2/ output/opt_v3fd/` |
 | `commands_stencils.txt` | Test commands for all implemented stencils |
 | `ir_out.txt` | Captured IR output (set `print_ir=True` or env var) |
 | `model/testing/src/icon4py/model/testing/stencil_tests.py` | Stencil setup for unstructured and structured test runs; This logic needs to somehow be ported to the standalone driver for end-to-end testing, but is currently only used for individual stencil tests |
@@ -47,6 +49,7 @@ Reduce IR size by shortening the IR at the right places (kolor-split, dead-code 
 | `../gt4py/src/gt4py/next/program_processors/runners/dace/workflow/translation.py` | DaCe translation step — modified to read `symbolic_domain_sizes` from thread-local, augment `offset_provider_type` with IDim/JDim/Kolor, and remap arg types for bindings |
 | `../gt4py/src/gt4py/next/program_processors/runners/dace/program.py` | DaCe SDFGConvertible interface — modified to pass `symbolic_domain_sizes` from thread-local |
 | `../gt4py/src/gt4py/next/program_processors/runners/dace/lowering/gtir_to_sdfg_primitives.py` | DaCe GTIR→SDFG primitives — modified to handle NEVER-domain args in `translate_as_fieldop` |
+|`test_out.txt`|Output of all tests that are not run via bash scripts with automatic output, claude should output to this file|
 ---
 
 ## Environment Variables
@@ -521,7 +524,7 @@ except Exception:
         sdfg, unit_strides_kind=common.DimensionKind.VERTICAL, validate=False)
 ```
 
-**Known fallback stencil**: `apply_diffusion_to_vn` (E2C2V + `start_2nd_nudge_line_idx_e` threshold condition). Phase 1 `MapFusionVertical`/`Horizontal` creates a scalar/array dimensionality mismatch in the fusion temporary for this stencil. All other tested stencils use the full `gt_auto_optimize` path.
+**Kolor-aware fusion callback** (`_kolor_aware_fusion_callback` in `translation.py`): passed to both `MapFusionVertical` and `MapFusionHorizontal` via `optimization_hooks`. The callback refuses to fuse two maps whose concrete Kolor start indices differ (e.g., `Kolor:[0,0)` vs `Kolor:[1,1)`). This prevents the `InvalidSDFGEdgeError` that previously caused `apply_diffusion_to_vn` to fall back to the safe subset. `_KOLOR_MAP_PARAM = 'i_Kolor_gtx_horizontal'` (computed via `gtx_dace_lowering.get_map_variable(common.Dimension("Kolor"))` to guarantee it matches SDFG lowering).
 
 #### Benchmark Results — 76×66 grid, K=5
 
@@ -563,6 +566,63 @@ The opt_v1 per-kolor split path applied `GT4PyMapBufferElimination + gt_simplify
 Root cause analysis showed only the two `propagate_memlets_sdfg` calls inside Phase 1's `if not disable_splitting:` block are unsafe. Phase 3 (`FuseHorizontalConditionBlocks`, `MoveDataflowIntoIfBody`, etc.) does NOT call `propagate_memlets_sdfg` — it is safe. `disable_splitting=True` skips only the unsafe Phase 1 block, preserving all other phases including map fusion (Phase 1), dataflow optimization (Phase 3), and iteration order setting (Phase 4 with `unit_strides_kind=VERTICAL`).
 
 Results (opt_v2): test 02 improved 14.2× over opt_v1; test 05 improved 4.3×; all 10 stencils improved vs opt_v1. One stencil (`apply_diffusion_to_vn`) triggers an `InvalidSDFGEdgeError` from a MapFusion dimensionality mismatch — handled via JSON-snapshot fallback.
+
+**Experiments D–G — further `gt_auto_optimize` parameter search (IMPLEMENTED as selector, TESTED on subset)**
+
+A `DACE_OPT_EXPERIMENT` env-var selector was added to `translation.py` to test each parameter independently without code changes. Tested on tests 01 (E2C2V) and 05 (E2C2EO) using **median exec time from `[timing]` lines** (excludes pack/unpack). Comparison target is the unstructured DaCe Median (no pack/unpack).
+
+Full benchmark results (all 10 stencils, all experiments), **exec-only median (ms)** from `[timing]` lines. Unstructured column = total benchmark median (no pack/unpack wrapper). Results in `output/opt_v3d/`, `output/opt_v3e/`, `output/opt_v3f/`. Comparison files (using `scripts/extract_timing_stats.py` + `scripts/compare_timing_results.py`) in `output/comparison/`.
+
+| # | Stencil | Unstruct | opt_v2 | Exp D (blocking) | Exp E (fuse_t) | Exp F (unroll) |
+|---|---------|----------|--------|------------------|----------------|----------------|
+| 01 | nabla2_smag (E2C2V) | 0.52 ms | 1.40 ms | **1.20 ms** | ❌ 19.27 ms | 1.15 ms |
+| 02 | horiz_adv (C2E) | 0.07 ms | 0.30 ms | 0.30 ms | 0.32 ms | **0.24 ms** |
+| 03 | extra_diff (C2E2CO) | 5.40 ms | 0.60 ms | 0.60 ms | **0.45 ms** | 0.54 ms |
+| 04 | div_damp (E2C+E2C2EO) | 0.83 ms | 5.95 ms | 5.90 ms | 5.89 ms | **5.75 ms** |
+| 05 | avg_vn (E2C2EO+E2C2E) | 1.04 ms | 3.05 ms | 3.40 ms | 3.87 ms | **2.89 ms** |
+| 06 | adv_hmom (complex) | 0.27 ms | 2.40 ms | 2.30 ms | 2.62 ms | **2.17 ms** |
+| 07 | interp_cell (C2E) | 0.06 ms | 0.30 ms | **0.20 ms** | 0.23 ms | 0.22 ms |
+| 08 | cells2verts (V2C) | 0.08 ms | 0.20 ms | 0.20 ms | 0.21 ms | 0.20 ms |
+| 09 | rot_vertex (V2E) | 0.08 ms | 0.20 ms | 0.20 ms | 0.20 ms | 0.20 ms |
+| 10 | diffusion_vn (E2C2V) | 0.42 ms | 3.05 ms | 2.90 ms | 3.59 ms | **2.71 ms** |
+
+**Key findings:**
+- **Test 03 (C2E2CO)**: structured exec (0.6ms) is already **9× faster than unstructured** (5.4ms). The 2-hop C2E2CO stencil is where structured layout wins at this grid size.
+- **Exp D (blocking_dim=JDim, blocking_size=8)**: Improves E2C2V stencils (nabla2_smag, interp_cell). Big regression on adv_hmom (1.72×). Neutral on simple stencils.
+- **Exp E (fuse_tasklets=True)**: Catastrophic for nabla2_smag (6.47×) and diffusion_vn (1.94×). E2C2V sparse slot expressions become unfused tasklets that the C++ compiler cannot vectorise. **Never use alone.**
+- **Exp F (scan_loop_unrolling=True)**: Broadly helpful — improves 7/10 stencils. Regressions on nabla2_smag (1.51×) and rot_vertex (1.2×). Earlier apparent 10× regression on test 02 was measurement noise (re-run confirmed).
+- **Exp G (reuse_transients=True)**: Not run on full benchmark — smoke test showed exec 134s → catastrophic SDFG corruption.
+
+**Experiment B — Further search on top of F (F+D, F+E):**
+
+Using `scripts/compare_timing_results.py` on full benchmark runs. Ratio = opt_v3X / opt_v2; < 1 is faster.
+
+| Stencil | F ratio | D ratio | E ratio | F+D ratio | F+E ratio |
+|---------|---------|---------|---------|-----------|-----------|
+| nabla2_smag (E2C2V) | ❌ 1.51 | ✅ 0.86 | ❌❌ 6.47 | ❌ 1.11 | ✅ 0.85 |
+| horiz_adv (C2E) | ✅ 0.80 | 1.00 | 1.00 | ✅ 0.83 | ✅ 0.83 |
+| extra_diff (C2E2CO) | ✅ 0.90 | 1.00 | ✅ 0.75 | ✅ 0.88 | ✅ 0.87 |
+| div_damp (E2C+E2C2EO) | ❌ 1.02 | 1.00 | 1.00 | ✅ 0.96 | ✅ 0.97 |
+| avg_vn (E2C2EO) | ✅ 0.95 | ❌ 1.10 | ❌ 1.23 | ✅ 1.01 | ❌ 1.28 |
+| adv_hmom (complex) | ✅ 0.78 | ❌❌ 1.72 | ✅ 0.80 | ✅ 0.77 | ❌❌❌ 28.1 |
+| diffusion_vn (E2C2V) | ✅ 0.97 | ✅ 0.94 | ❌❌ 1.94 | ❌ 1.07 | ✅ 0.98 |
+| interp_cell (C2E) | ✅ 0.77 | ✅ 0.67 | ✅ 0.77 | ✅ 0.73 | ❌❌ 9.27 |
+| cells2verts (V2C) | ✅ 0.95 | 1.00 | 1.05 | ✅ 0.90 | ❌❌ 8.70 |
+| rot_vertex (V2E) | ❌ 1.20 | 1.00 | 1.00 | ✅ 0.95 | ❌ 1.35 |
+| **Better/Worse** | **7/3** | **4/2** | **5/4** | **8/2** | **5/5** |
+
+**F+D is the best overall**: 8/10 stencils improved, regressions are small (nabla2_smag 11%, diffusion_vn 7% — both E2C2V stencils where blocking disrupts sparse-slot access). F+E is unusable: adv_hmom 28×, interp_cell 9×, cells2verts 9× slower.
+
+**Current production default**: `DACE_OPT_EXPERIMENT=FD` (scan_loop_unrolling + blocking_dim=JDim, blocking_size=8).
+
+**How to re-run** (env var selector in `translation.py`, default = FD):
+```bash
+DACE_OPT_EXPERIMENT=none  ./scripts/run_stencil_commands.sh -o output/opt_v2_rerun/  # pure opt_v2 baseline
+DACE_OPT_EXPERIMENT=F     ./scripts/run_stencil_commands.sh -o output/opt_v3f/
+DACE_OPT_EXPERIMENT=D     ./scripts/run_stencil_commands.sh -o output/opt_v3d/
+DACE_OPT_EXPERIMENT=FD    ./scripts/run_stencil_commands.sh -o output/opt_v3fd/      # current default
+```
+Compare: `python3 scripts/compare_timing_results.py output/opt_v2/ output/opt_v3fd/`
 
 ### Performance Optimizations for Structured DaCe Backend
 
@@ -607,5 +667,40 @@ The commented-out vectorized version for 1D edge fields (line 468) already exist
 
 Remaining gaps:
 - Field packing/unpacking is backend-agnostic (works for both GTfn and DaCe) — wrapper packs unstructured → structured before calling the SDFG.
-- `apply_diffusion_to_vn` (E2C2V + threshold) uses the JSON-snapshot fallback (GT4PyMapBufferElimination + gt_set_iteration_order only) because Phase 1 MapFusion creates a scalar/array dimensionality mismatch for this stencil. Root cause is in DaCe's `MapFusionVertical`/`MapFusionHorizontal` interaction with threshold-condition SDFGs. Once fixed upstream, this stencil will benefit from the full optimization path.
+- `apply_diffusion_to_vn` previously used the JSON-snapshot fallback due to a MapFusion dimensionality mismatch. **Fixed** by the Kolor-aware fusion callback (see above) — the stencil now uses the full `gt_auto_optimize` path. The JSON-snapshot fallback remains in the code as a safety net for any future unknown patterns.
 - `cells2verts` (V2C, test 08) is 1.4× slower than the no-optimization baseline. V2C has only 1 Kolor and very few cells; map fusion overhead outweighs the benefit at 76×66 grid size. Larger grids are expected to flip this.
+
+### Potential Future Improvement: Kolor-Aware auto_optimize
+
+Currently `disable_splitting=True` is needed because `propagate_memlets_sdfg` in Phase 1 collapses single-element `Kolor:[k,k+1)` map ranges. This blocks the full Phase 1 pipeline (MapSplitter, SplitConsumerMemlet, gt_vertical/horizontal_map_split_fusion) which could provide additional speedup for some stencils.
+
+A targeted fix is to make `MapFusionVertical`/`MapFusionHorizontal` Kolor-aware via a fusion callback that refuses to fuse maps with disjoint Kolor ranges (e.g., prevents merging `Kolor:[0,1)` map with `Kolor:[1,2)` map). This would:
+1. Allow removing `disable_splitting=True` — unlocking the full splitting pipeline
+2. Prevent the `InvalidSDFGEdgeError` from test 10's MapFusion dimensionality mismatch
+3. Make the blocking_dim (Exp D) more effective since the split maps would be better separated
+
+Implementation: pass a `check_fusion_callback` via `optimization_hooks` in `gt_auto_optimize` that inspects the Kolor range of both maps being fused. If they are both concrete (post `gt_substitute_compiletime_symbols`) and disjoint, return False to prevent fusion.
+
+```python
+def _kolor_aware_fusion_callback(state, sdfg, first_exit, second_entry, missing_params):
+    # Extract Kolor range from both maps and refuse to fuse if disjoint
+    kolor_param = "__Kolor"
+    first_range = dict(zip(first_exit.map.params, first_exit.map.range))
+    second_range = dict(zip(second_entry.map.params, second_entry.map.range))
+    if kolor_param in first_range and kolor_param in second_range:
+        k1_start, k1_stop, _ = first_range[kolor_param][0]
+        k2_start, k2_stop, _ = second_range[kolor_param][0]
+        try:
+            if int(k1_stop) < int(k2_start) or int(k2_stop) < int(k1_start):
+                return False  # disjoint Kolor ranges — refuse fusion
+        except (TypeError, ValueError):
+            pass
+    return True  # allow fusion (default)
+
+structured_opt_args["optimization_hooks"] = {
+    GT4PyAutoOptHook.TopLevelDataFlowMapFusionVerticalCallBack: _kolor_aware_fusion_callback,
+    GT4PyAutoOptHook.TopLevelDataFlowMapFusionHorizontalCallBack: _kolor_aware_fusion_callback,
+}
+```
+
+This is the most promising path to close the remaining gap with the unstructured baseline while keeping full SDFG optimization.
