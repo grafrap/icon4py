@@ -33,6 +33,22 @@ def is_backend_descriptor(
     return False
 
 
+def is_cpu_backend(
+    backend: BackendLike,
+) -> bool:
+    if isinstance(backend, gtx_backend.Backend):
+        return backend.allocator.device_type == CPU
+    return get_allocator(backend).device_type == CPU
+
+
+def is_gpu_backend(
+    backend: BackendLike,
+) -> bool:
+    if isinstance(backend, gtx_backend.Backend):
+        return backend.allocator.device_type == GPU
+    return get_allocator(backend).device_type == GPU
+
+
 def get_allocator(
     backend: BackendLike,
 ) -> gtx_typing.Backend:
@@ -101,6 +117,7 @@ def make_custom_dace_backend(
     return gtx_dace.make_dace_backend(
         gpu=on_gpu,
         cached=cached,
+        apply_common_transform=True,
         auto_optimize=auto_optimize,
         async_sdfg_call=async_sdfg_call,
         optimization_args=optimization_args,

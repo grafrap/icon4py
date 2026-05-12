@@ -131,6 +131,10 @@ venv.bak/
 # SpaceVim altfiles settings
 .project_alt.json
 
+# Claude
+.claude/*.local.json
+.claude/*.lock
+
 ### Others ###
 .obsidian
 img/offsetProvider_e2c2e.png
