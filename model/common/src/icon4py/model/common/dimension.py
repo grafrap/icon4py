@@ -53,12 +53,19 @@ Koff = gtx.FieldOffset("Koff", source=KDim, target=(KDim,))
 KHalfOff = gtx.FieldOffset("KHalfOff", source=KHalfDim, target=(KHalfDim,))
 
 
+_STRUCTURED_BACKEND_DIMS: frozenset[str] = frozenset({"IDim", "JDim", "Kolor"})
+
+
 def horizontal_dims() -> Iterator[gtx.Dimension]:
+    # Exclude structured-backend dimensions (IDim, JDim, Kolor) — they are HORIZONTAL
+    # but are not ICON grid dimensions and have no refinement data.
     return iter(
         tuple(
             d
             for d in globals().values()
-            if isinstance(d, gtx.Dimension) and d.kind == gtx.DimensionKind.HORIZONTAL
+            if isinstance(d, gtx.Dimension)
+            and d.kind == gtx.DimensionKind.HORIZONTAL
+            and d.value not in _STRUCTURED_BACKEND_DIMS
         )
     )
 

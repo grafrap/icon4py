@@ -37,23 +37,39 @@ def _configured_program(request, grid):
                 "or disable USE_STRUCTURED_BACKEND."
             )
         print(f"\n---> INTERCEPTING FIXTURE FOR: {operator.name} <---")
-        
+
+        # Select backend factory based on --backend flag.
+        import functools
+        backend_like = request.getfixturevalue("backend_like") if hasattr(request, "getfixturevalue") else None
+        _backend_factory_fn = (
+            backend_like.get("backend_factory") if isinstance(backend_like, dict) else None
+        )
+        _is_dace = (
+            _backend_factory_fn is not None
+            and "dace" in str(getattr(_backend_factory_fn, "__name__", "")).lower()
+        )
+        if _is_dace:
+            from gt4py.next.program_processors.runners.dace.workflow.backend import DaCeBackendFactory
+            _chosen_factory = DaCeBackendFactory
+        else:
+            _chosen_factory = gtfn_runner.GTFNBackendFactory
+
         # 2. Get the globally cached mapping
         e2v_conn = grid.connectivities.get("E2V")
         e2v_array = e2v_conn.asnumpy() if e2v_conn is not None else None
         index_map, remap_sizes = get_global_grid_mapping(e2v_override=e2v_array)
-        
+
         # 3. Inject sizes explicitly into the compiler pass ClassVars!
         CartesianDomainAndTypeRemapper.MAX_I = int(remap_sizes.max_i)
         CartesianDomainAndTypeRemapper.MAX_J = int(remap_sizes.max_j)
-        
-        # 4. Create and return our magic wrapper
+
+        # 4. Create and return the wrapper
         wrapper = GenericStructuredWrapper(
             operator=operator,
-            backend_factory=gtfn_runner.GTFNBackendFactory,
+            backend_factory=_chosen_factory,
             index_map=index_map,
             remap_sizes=remap_sizes,
-            allocator=None, # We extract this during __call__ dynamically
+            allocator=None,
             offset_provider=grid.connectivities
         )
         return wrapper
