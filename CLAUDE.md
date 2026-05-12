@@ -249,6 +249,10 @@ Use the **`grafrap_dace`** branch of `../gt4py`. This branch has all structured-
 
 **`dimension.py` — `horizontal_dims()`**: `IDim, JDim, Kolor` are `kind=HORIZONTAL` but must be excluded from `horizontal_dims()` to prevent `get_start_and_end_index` in `icon.py` from calling `compute_domain_bounds(IDim, refinement_fields)` — which fails because there is no refinement data for structured dimensions. Fixed by `_STRUCTURED_BACKEND_DIMS = frozenset({"IDim","JDim","Kolor"})` filter.
 
+### Running with DaCe Unstructured
+
+When `USE_STRUCTURED_BACKEND=0`, the DaCe backend uses `apply_fieldview_transforms` (NOT `_preprocess_program`) since `apply_common_transform=False`. This avoids `force_inline_lambda_args=True` which caused a bug for `ListType` fields (`Field[CellDim, C2EDim]`) accessed via connectivity tables. Timing output is printed via the `[timing] stencil exec=Xs` format (same `extract_timing_stats.py` compatible format as structured).
+
 ### Known DaCe Issues (resolved)
 
 All previously failing stencils now pass. The fixes applied:

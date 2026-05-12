@@ -358,8 +358,20 @@ class StencilTest:
                     **static_args,  # type: ignore[arg-type]
                 )
 
-        test_func = device_utils.synchronized_function(program, allocator=backend)
-        return test_func
+        program_name = getattr(self.PROGRAM, "id", type(self.PROGRAM).__name__)
+        _sync_func = device_utils.synchronized_function(program, allocator=backend)
+
+        import time as _time, functools as _functools
+
+        @_functools.wraps(_sync_func)
+        def _timed_program(*args, **kwargs):
+            _t0 = _time.perf_counter()
+            _result = _sync_func(*args, **kwargs)
+            _t1 = _time.perf_counter()
+            print(f"[timing] {program_name} exec={_t1 - _t0:.8f}s")
+            return _result
+
+        return _timed_program
 
     @pytest.fixture
     def _properly_allocated_input_data(
