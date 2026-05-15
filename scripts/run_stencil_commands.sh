@@ -16,7 +16,7 @@ EOF
 
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 repo_root="$(cd "$script_dir/.." && pwd)"
-command_file="$repo_root/commands_stencils.txt"
+command_file="$repo_root/commands_stencils_small.txt"
 output_dir="$repo_root/output"
 jobs="${JOBS:-1}"
 

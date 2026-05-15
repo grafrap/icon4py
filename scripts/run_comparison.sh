@@ -43,7 +43,7 @@ EOF
 #
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 repo_root="$(cd "$script_dir/.." && pwd)"
-grid_path="${repo_root}/../grid-generator/parallelogram_grid.nc"
+grid_path="${repo_root}/../grid_generator/parallelogram_grid.nc"
 backend="gtfn_cpu"
 output_dir="${repo_root}/output"
 log_level="info"
@@ -152,7 +152,7 @@ import glob
 import os
 import sys
 
-cache_dir = ".gt4py_cache/gtfn_cache"
+cache_dir = "gt_cache/.gt4py_cache/gtfn_cache"
 stencils_to_clean = ["copy_field", "scale_k", "setup_fields_for_initial_step"]
 deleted_count = 0
 
@@ -205,7 +205,7 @@ echo ""
 if [[ "${unstructured_only}" == "true" ]]; then
   echo "Mode: Unstructured backend only"
   export USE_STRUCTURED_BACKEND=0
-  export PYTHONOPTIMIZE=0
+  export PYTHONOPTIMIZE=1
   
   python3 model/standalone_driver/src/icon4py/model/standalone_driver/main.py \
     --grid-file-path "${grid_path}" \
@@ -219,7 +219,7 @@ if [[ "${unstructured_only}" == "true" ]]; then
 elif [[ "${structured_only}" == "true" ]]; then
   echo "Mode: Structured backend only"
   export USE_STRUCTURED_BACKEND=1
-  export PYTHONOPTIMIZE=0
+  export PYTHONOPTIMIZE=1
   
   python3 model/standalone_driver/src/icon4py/model/standalone_driver/main.py \
     --grid-file-path "${grid_path}" \
@@ -242,7 +242,7 @@ else
   
   echo ""
   echo "Running structured backend in separate process..."
-  USE_STRUCTURED_BACKEND=1 PYTHONOPTIMIZE=0 python3 model/standalone_driver/src/icon4py/model/standalone_driver/main.py \
+  USE_STRUCTURED_BACKEND=1 PYTHONOPTIMIZE=1 python3 model/standalone_driver/src/icon4py/model/standalone_driver/main.py \
     --grid-file-path "${grid_path}" \
     --icon4py-backend "${backend}" \
     --output-path "${struct_output}" \
@@ -264,7 +264,7 @@ import glob
 import os
 import sys
 
-cache_dir = ".gt4py_cache/gtfn_cache"
+cache_dir = "gt_cache/.gt4py_cache/gtfn_cache"
 stencils_to_clean = ["copy_field", "scale_k", "setup_fields_for_initial_step"]
 deleted_count = 0
 
@@ -293,7 +293,7 @@ CLEANUP_BETWEEN
     
     echo ""
     echo "Running unstructured backend in separate process..."
-    USE_STRUCTURED_BACKEND=0 PYTHONOPTIMIZE=0 python3 model/standalone_driver/src/icon4py/model/standalone_driver/main.py \
+    USE_STRUCTURED_BACKEND=0 PYTHONOPTIMIZE=1 python3 model/standalone_driver/src/icon4py/model/standalone_driver/main.py \
       --grid-file-path "${grid_path}" \
       --icon4py-backend "${backend}" \
       --output-path "${unstruct_output}" \

@@ -128,7 +128,7 @@ class TestAddExtraDiffusionForWConApproachingCfl(StencilTest):
         cfl_w_limit = vpfloat("3.0")
         dtime = wpfloat("2.0")
         
-        cell_domain = h_grid.domain(dims.EdgeDim)
+        cell_domain = h_grid.domain(dims.CellDim)
         horizontal_start = grid.start_index(cell_domain(h_grid.Zone.LATERAL_BOUNDARY_LEVEL_2))
 
         return dict(

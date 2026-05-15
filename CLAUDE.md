@@ -704,3 +704,208 @@ structured_opt_args["optimization_hooks"] = {
 ```
 
 This is the most promising path to close the remaining gap with the unstructured baseline while keeping full SDFG optimization.
+
+---
+
+### Bug 6 — CUDA `ILLEGAL_ADDRESS` on big grids: `apply_fieldview_transforms` is missing IR fusion
+
+**Symptom**: On `grafrap3` + `dace_gpu` + 512×512 grid, every kernel of `compute_advection_in_corrector_vertical_momentum` fails at first launch with `CUDA_ERROR_ILLEGAL_ADDRESS (700)`. The same code on the same branch with a 26×26 grid passes. The previous `grafrap_dace` branch passes on the 512×512 grid.
+
+**Root cause**: When the DaCe path was changed from `apply_common_transforms` (with `apply_common_transform=True`) to `apply_fieldview_transforms`, every IR fusion pass after the structured passes was dropped. Concretely, `apply_fieldview_transforms` is missing the 10-iteration inlining loop with `InlineLambdas`, `CollapseTuple`, `InlineScalar`, `SimplifyCartesianShifts`, `FuseAsFieldOp`, `ConstantFolding`; plus `CommonSubexpressionElimination`, `FuseMaps`, `CollapseListGet`, the `_apply_unroll_reduce_pipeline` (note: `unroll_reduce` parameter is accepted but never used in `apply_fieldview_transforms`), and the final `InlineLambdas(force_inline_lambda_args=True)`.
+
+Without `FuseAsFieldOp`, every `+`, `×`, `cast_`, `if`, `list_get` lands in its own `as_fieldop` over the full structured domain. For `compute_advection_in_corrector_vertical_momentum` the post-pipeline IR is 1632 lines / **289 `as_fieldop`** on `grafrap3` vs 630 lines / **53 `as_fieldop`** on `grafrap_dace`. Each `as_fieldop` becomes a separate DaCe nested-SDFG/map writing to a separate device-side transient.
+
+**Why the small grid works:**
+- Per-transient size: 26² × 3 × 50 × 8 B ≈ 800 KB vs 513² × 3 × 50 × 8 B ≈ 316 MB at the big grid.
+- Total transient memory: 26² → ~160 MB (fits trivially); 513² → ~60 GB. DaCe must aggressively reuse transients on the big grid — same device pointer rebound to the next kernel. Any latent off-by-one in a declared shape/stride/memlet subset becomes a use-after-free or write-past-end.
+- CUDA's allocator rounds up: a small array sits inside a still-mapped page, so a tiny OOB silently reads zeros or stale data. The same OOB on a 316 MB array lands outside the backing memory and CUDA traps it as `700`.
+- CUDA grid Y/Z dim cap (65535): at 26² no kernel comes near it; at 512² some auto-generated kernels skirt the limit, and an extra factor in any un-fused intermediate would exceed it.
+
+**Diagnostic** (offline, no GPU job needed): set `print_ir=True` and compare the post-`apply_fieldview_transforms` IR with the post-`apply_common_transforms` IR. Counts that matter for `compute_advection_in_corrector_vertical_momentum`:
+
+| | grafrap_dace (works at 512²) | grafrap3 (fails at 512²) |
+|---|---|---|
+| Lines | 630 | **1632** |
+| `as_fieldop` | 53 | **289** |
+| `concat_where` | 34 | 44 |
+
+If you see a ratio anywhere near 5× more `as_fieldop`, this bug is in play.
+
+**Fix (landed, verified on 512×512 grid)**: in `../gt4py/src/gt4py/next/iterator/transforms/pass_manager.py`, at the **very end** of `apply_fieldview_transforms` (after `ir = remove_broadcast.RemoveBroadcast.apply(ir)`), append a structured-backend-gated inlining loop **plus a second `infer_domain.infer_program` call**. Three subtle constraints had to be satisfied in order:
+
+1. **Order: fuse AFTER `infer_program`**. `transform_to_as_fieldop` (and the rest of the DaCe lowering) reads `node.annex.domain` set by `infer_program`. Earlier I placed the fusion block right after the structured `cart_unroll` block (before `infer_program`) → `AttributeError: 'Namespace' object has no attribute 'domain'` inside `transform_to_as_fieldop.visit_FunCall`.
+
+2. **Do NOT call `concat_where.transform_to_as_fieldop`** inside the structured-backend block. `grafrap3`'s `gtir_to_sdfg_primitives.translate_as_fieldop` explicitly rejects tuple-output `as_fieldop` (`raise NotImplementedError("Unexpected 'as_fieldop' with tuple output in SDFG lowering.")`, line 255). `transform_to_as_fieldop` collapses a tuple-returning `concat_where` (e.g. the stencil's 3-tuple `(advective_tendency, corrected_w, cfl)`) into one tuple-output `as_fieldop`, which DaCe then can't lower. Skip the transform → `concat_where` survives and is lowered by `gtir_to_sdfg_concat_where.translate_concat_where`. This matches `grafrap_dace`'s `transform_concat_where_to_as_fieldop=False`.
+
+3. **Re-run `infer_program` AFTER the fusion loop**. `InlineLambdas` / `FuseAsFieldOp` / `CollapseTuple` rebuild the IR tree → newly created `concat_where` nodes have no `annex.domain`. `grafrap3`'s simplified `gtir_to_sdfg_concat_where.py` (shrunk 225 lines vs `grafrap_dace`) hard-relies on the annex at line 241/277: `output_domain = gtir_domain.get_field_domain(node.annex.domain)`. Without the second `infer_program` call, the same `AttributeError` reappears at DaCe lowering time. The bumped recursion limit in `infer_domain.py` is required for this second call to complete on the 512² IR.
+
+```python
+# At the end of apply_fieldview_transforms, after `ir = remove_broadcast.RemoveBroadcast.apply(ir)`:
+if os.environ.get("USE_STRUCTURED_BACKEND", "0") == "1":
+    for _ in range(10):
+        inlined = ir
+        inlined = InlineLambdas.apply(inlined, opcount_preserving=True)
+        inlined = ConstantFolding.apply(inlined)
+        inlined = CollapseTuple.apply(
+            inlined,
+            enabled_transformations=~CollapseTuple.Transformation.PROPAGATE_TO_IF_ON_TUPLES,
+            uids=uids,
+            offset_provider_type=offset_provider_type,
+        )
+        inlined = InlineScalar.apply(inlined, offset_provider_type=offset_provider_type)
+        inlined = simplify_cart_shifts.SimplifyCartesianShifts.apply(inlined)
+        try:
+            inlined = fuse_as_fieldop.FuseAsFieldOp.apply(
+                inlined, uids=uids, offset_provider_type=offset_provider_type
+            )
+        except Exception:
+            pass
+        inlined = ConstantFolding.apply(inlined)
+        if inlined == ir:
+            break
+        ir = inlined
+    ir = NormalizeShifts().visit(ir)
+    ir = InlineLambdas.apply(ir, opcount_preserving=True, force_inline_lambda_args=True)
+    # Repopulate node.annex.domain on concat_where nodes rebuilt by the fusion loop;
+    # gtir_to_sdfg_concat_where.translate_concat_where reads it at lowering time.
+    ir = infer_domain.infer_program(
+        ir,
+        symbolic_domain_sizes=symbolic_domain_sizes,
+        offset_provider=offset_provider,
+    )
+```
+
+**Verification (slurm job 4311561, 512×512 grid, K=50, dace_gpu, `test_compute_advection_in_vertical_momentum_equation`)**:
+
+| | grafrap3 (broken) | grafrap3 (patched) |
+|---|---|---|
+| Result | `CUDA_ERROR_ILLEGAL_ADDRESS (700)` at first kernel | **5/5 variants passed** |
+| Steady-state GPU exec / call | n/a | **38 ms** |
+| Steady-state pack / unpack | n/a | 1.29 s / 1.65 s |
+| First-call JIT + first exec | n/a | 238 s |
+| Total wall-time (5 variants × 3 rounds × 10 iter) | n/a | 24:22 |
+
+**Failure-mode trail** (each successive run revealed the next blocker):
+1. `CUDA_ERROR_ILLEGAL_ADDRESS (700)` — original IR explosion (289 vs 53 `as_fieldop`); transient pool exhausted at 512².
+2. `AttributeError: 'Namespace' object has no attribute 'domain'` inside `transform_to_as_fieldop.visit_FunCall` — fusion block placed before `infer_program`.
+3. `NotImplementedError: Unexpected 'as_fieldop' with tuple output in SDFG lowering.` — `transform_to_as_fieldop` collapsed tuple-returning `concat_where` into a single tuple-output `as_fieldop`.
+4. `AttributeError: 'Namespace' object has no attribute 'domain'` inside `gtir_to_sdfg_concat_where.translate_concat_where` — fusion loop rebuilt `concat_where` nodes, stripping the annex set by the first `infer_program`.
+5. Pass.
+
+**Alternative fix (not landed)**: swap `apply_fieldview_transforms` for `apply_common_transforms` (with `force_inline_lambda_args=True`, retry with `unroll_reduce=True` if `neighbors` survive) in `translation.py:_generate_sdfg_without_configuring_dace`. Restores `CommonSubexpressionElimination`, `FuseMaps`, `CollapseListGet`, and the real `_apply_unroll_reduce_pipeline` too — potentially fewer SDFG nodes, but a bigger blast radius (all DaCe stencils go through the heavier pipeline).
+
+**Recursion-limit bumps** in `constant_folding.py` and `infer_domain.py` are still needed (the second `infer_program` on the 512² IR recurses past the default 1000 frames).
+
+**Related lateral env-var note**: `unset GT4PY_TRANSLATOR_LATERAL` and `export GT4PY_TRANSLATOR_LATERAL=0` are not equivalent. Default in code is `"1"`, so the small-grid command (`unset …`) runs with `lateral=1` and the big-grid command (`=0`) runs with `lateral=0`. This changes `start_i/start_j/end_i/end_j` in `StructuredRemapSizes`. Unrelated to the fusion bug, but worth aligning between runs if comparing IRs.
+
+**Trade-off note**: the steady-state pack (1.29 s) and unpack (1.65 s) dominate over the actual GPU exec (38 ms). At production grid sizes the GPU exec scales linearly but pack/unpack scale similarly — the structured layout's win shows up only if pack/unpack can be made async with compute, or amortised across many kernels in the same call.
+
+---
+
+## DaCe GPU Backend — Known Bugs and Fixes
+
+### Cache management (important!)
+
+The gt4py OTF compilation cache lives at `icon4py/.gt4py_cache` (controlled by `GT4PY_BUILD_CACHE_DIR`). The SLURM script sets `GT4PY_BUILD_CACHE_DIR=${WORKDIR}` so the cache is at `${WORKDIR}/.gt4py_cache = icon4py/.gt4py_cache`. The non-SLURM runner script (`run_stencil_commands.sh`) clears `$repo_root/.gt4py_cache` before each run. **Always clear the cache when changing grids or switching branches** — a stale compiled binary for the wrong grid size causes wrong results or crashes.
+
+```bash
+rm -rf /scratch/mch/rgraf/icon4py/.gt4py_cache
+```
+
+### Small-grid workflow (26×26, K=5)
+
+Use `commands_stencils_small.txt` for fast iteration during development. Run on the SLURM **debug** partition:
+
+```bash
+# From icon4py/ directory, after sbatch or srun:
+bash scripts/run_stencil_commands.sh \
+  --command-file commands_stencils_small.txt \
+  --output-dir output/small_26_grafrap3/ \
+  --jobs 1
+```
+
+For SBATCH:
+```bash
+sbatch --partition=debug --time=02:00:00 \
+  scripts/run_stencil_commands_slurm.sh \
+  --command-file commands_stencils_small.txt \
+  --output-dir output/small_26_grafrap3/
+```
+
+Grid files:
+- Small (26×26): `grid_generator/parallelogram_grid_26.nc` — K=5 levels, fast debug runs
+- Standard (512×512): `grid_generator/parallelogram_grid.nc` — K=50 levels, full benchmark
+
+### Small-grid status (grafrap3, 26×26, K=5) — updated 2026-05-15
+
+**9/10 stencils pass** on `dace_gpu`. Only stencil 03 (C2E2CO) remains failing.
+
+| # | Stencil | Status | Root cause / fix |
+|---|---------|--------|-----------------|
+| 01 | nabla2_smag (E2C2V) | ✅ PASSES | FuseAsFieldOp ratio-guard fix |
+| 02 | horiz_advection (C2E) | ✅ PASSES | - |
+| 03 | extra_diffusion (C2E2CO) | ❌ FAILS | Wrong `cell_to_ijk` mapping → asymmetric bounds |
+| 04 | div_damping (E2C+E2C2EO) | ✅ PASSES | - |
+| 05 | avg_vn_graddiv (E2C2EO) | ✅ PASSES | - |
+| 06 | adv_hmom (complex) | ✅ PASSES | - |
+| 07 | interp_cell (C2E) | ✅ PASSES | - |
+| 08 | cells2verts (V2C) | ✅ PASSES | - |
+| 09 | rot_vertex (V2E) | ✅ PASSES | Test `horizontal_start` fix |
+| 10 | diffusion_vn (E2C2V) | ✅ PASSES | - |
+
+---
+
+### Fix 1 — Stencil 01 (E2C2V): FuseAsFieldOp ratio-guard (FIXED)
+
+**Symptom**: `InvalidSDFGNodeError: Dangling in-connector __tlet_arg0 (at tlet_42_minus)` for `calculate_nabla2_and_smag_coefficients_for_vn`.
+
+**Root cause**: `FuseAsFieldOp.apply` reduces 249→3 as_fieldop (83×) in one step for this stencil. The per-kolor split creates 9 SetAts (3 outputs × 3 kolors) with structurally identical lambda bodies → they share the same `as_fieldop` node. FuseAsFieldOp inlines 249 inner nodes into this single shared as_fieldop, creating a fused lambda with broken data-flow (one `as_fieldop` referenced from 3 kolor domains → dangling `tlet_42_minus` connector).
+
+Confirmed: disabling FuseAsFieldOp (`GT4PY_DISABLE_FUSE_AS_FIELDOP=1`) makes stencil 01 pass in 189s.
+
+**Fix** (`gt4py/src/gt4py/next/iterator/transforms/pass_manager.py`): reject fusion when the reduction ratio exceeds 20× in one step:
+```python
+_ratio = int(os.environ.get("GT4PY_FUSE_RATIO_THRESHOLD", "20"))
+if _n_before > 0 and _n_after > 0 and (_n_before // _n_after) > _ratio:
+    inlined = _pre_fuse  # restore pre-fusion IR
+```
+Also added `CommonSubexpressionElimination + MergeLet` before `FuseAsFieldOp` each iteration.
+
+**Note**: With the ratio-guard, stencil 01 retains ~249 as_fieldop nodes. At 512×512 this causes IR explosion (slow execution / GPU transient OOM). Long-term fix: de-share SetAt expressions before fusion (deepcopy each SetAt's `as_fieldop` after kolor-split).
+
+---
+
+### Fix 2 — Stencil 09 (V2E): Test `horizontal_start` fix (FIXED)
+
+**Symptom**: Wrong `rot_vec` values — FuseAsFieldOp over-fused (earlier), then wrong reference mismatch when `horizontal_start` was added.
+
+**Fix**: Changed test `horizontal_start` from 0 to `grid.start_index(vertex_domain(h_grid.Zone.LATERAL_BOUNDARY_LEVEL_2))` AND updated the reference function to also respect `horizontal_start`, so vertices in the lateral boundary halo are excluded from both computation and reference comparison.
+
+File: `model/atmosphere/dycore/tests/dycore/stencil_tests/test_mo_math_divrot_rot_vertex_ri_dsl.py`
+
+---
+
+### Remaining Bug — Stencil 03 (C2E2CO): Wrong `cell_to_ijk` mapping (open)
+
+**Symptom**: `ddt_w_adv` has ~1% wrong elements on `dace_gpu`; passes on `dace_cpu` and `gtfn`. FuseAsFieldOp is **not** the cause (confirmed: disabling fusion gives same ~1% failure).
+
+**Root cause**: The IR domain for the C2E2CO stencil is `IDimₕ:[1,26), JDimₕ:[0,26)` — **asymmetric**. IDim is correctly clamped to [1,26) by `LATERAL_BOUNDARY_LEVEL_2`, but JDim starts at 0. Cells at JDim=0 (kolor=0) have C2E2CO neighbors at JDim-1=-1 → OOB GPU access → wrong values. Similarly, cells at IDim=25/JDim=25 (kolor=1) access IDim+1=26 / JDim+1=26 → OOB. On CPU, the OOB reads accidentally land on valid adjacent memory → passes.
+
+The domain should be **symmetric**: either [0,26) for both (if all boundary cells are in the halo) or [1,25) for both (if interior domain contracts). The asymmetry means `LATERAL_BOUNDARY_LEVEL_2` in the unstructured cell ordering excludes IDim=0 cells but NOT JDim=0 / IDim=25 / JDim=25 cells from the structured layout.
+
+**The hypothesis**: The `build_cell_ijk_maps` function in `gt4py/src/gt4py/next/modules/translator.py` is incorrectly assigning some cells to boundary structured positions (JDim=0) when they should be at interior positions. This makes `LATERAL_BOUNDARY_LEVEL_2` unable to exclude all OOB cells. According to ICON convention, `LATERAL_BOUNDARY_LEVEL_2` should already exclude all cells with invalid C2E2CO neighbors.
+
+**File to investigate**: `gt4py/src/gt4py/next/modules/translator.py`, function `build_cell_ijk_maps` (lines 737–764) — specifically whether the `i_min = min(i_coords)` / `j_min = min(j_coords)` formula correctly assigns cells to structured positions for the parallelogram mesh.
+
+**Next step**: Print the structured (IDim, JDim, kolor) positions for cells near the LATERAL_BOUNDARY zone boundary and verify they match expected interior positions.
+
+### Visualization scripts
+
+| Script | Field type | Key args |
+|---|---|---|
+| `scripts/compare_arrays.py` | Edge (3 kolors) | `--nx <nx> --ny <ny>` |
+| `scripts/compare_cell_arrays.py` | Cell (2 kolors) | `--nx <nx> --ny <ny>` |
+| `scripts/compare_vertex_arrays.py` | Vertex (1 kolor) | `--nx <nx+1> --ny <ny+1>` |
+
+For the 26×26 grid: cell `--nx 26 --ny 26`, vertex `--nx 27 --ny 27`.
+For the 512×512 grid: cell `--nx 512 --ny 512`, vertex `--nx 513 --ny 513`.

@@ -617,8 +617,12 @@ class StencilTest:
             else:
                 reference_outputs_name = reference_outputs[name]#_backtransform_reference_output(name, reference_outputs[name])  # for mypy
                 assert isinstance(reference_outputs_name, np.ndarray)
-                # write output and reference into other output files
-                open(f"stencil_output.txt", "w").write(str(input_data_name.asnumpy()[gtslice][:,0]) + "\n" + str(reference_outputs_name[refslice][:,0]))
+                # # write output and reference into other output files (full array, no truncation)
+                # open("stencil_output.txt", "w").write(
+                #     np.array2string(input_data_name.asnumpy()[gtslice][:,0], max_line_width=np.inf, threshold=np.inf)
+                #     + "\n"
+                #     + np.array2string(reference_outputs_name[refslice][:,0], max_line_width=np.inf, threshold=np.inf)
+                # )
                 # print(f"output:\n{input_data_name.asnumpy()[gtslice][:,0]}")
                 # print(f"reference:\n{reference_outputs_name[refslice][:,0]}")
                 # print(f"slices - gt4py: {gtslice}, reference: {refslice}")

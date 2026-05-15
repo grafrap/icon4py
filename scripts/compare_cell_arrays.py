@@ -100,26 +100,26 @@ def main() -> None:
 	parser.add_argument(
 		"--nx",
 		type=int,
-		default=13,
-		help="Number of cells in x direction (default: 13).",
+		default=26,
+		help="Number of cells in x direction (default: 26).",
 	)
 	parser.add_argument(
 		"--ny",
 		type=int,
-		default=16,
-		help="Number of cells in y direction (default: 16).",
+		default=26,
+		help="Number of cells in y direction (default: 26).",
 	)
 	parser.add_argument(
 		"--cols",
 		type=int,
-		default=13,
-		help="Values printed per line for each half (default: 13).",
+		default=26,
+		help="Values printed per line for each half (default: 26).",
 	)
 	args = parser.parse_args()
 
 	try:
 		a_, b_ = get_two_arrays(args.file, args.file_b)
-		trafo = transform_to_unstructured(np.array(a_), 13, "Cell")[1]
+		trafo = transform_to_unstructured(np.array(a_), args.nx, "Cell")[1]
 		a = np.array(a_)[trafo] # only necessary, if we do unstructured backend !!!
 		b = np.array(b_)[trafo]
 	except Exception as exc:
