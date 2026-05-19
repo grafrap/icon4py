@@ -885,6 +885,324 @@ File: `model/atmosphere/dycore/tests/dycore/stencil_tests/test_mo_math_divrot_ro
 
 ---
 
+### Open Bug — Stencil 04 (E2C + E2C2EO): `apply_divergence_damping_and_update_vn` CUDA_ERROR_ILLEGAL_ADDRESS on GPU
+
+**Symptom**: `CUDA_ERROR_ILLEGAL_ADDRESS (700)` on `dace_gpu` with the 512×512 grid, every kernel. Passes on `dace_cpu` and `gtfn_cpu`. Fails on both 26×26 and 512×512 GPU grids.
+
+**Root cause (confirmed)**: `FuseAsFieldOp` in the fusion loop inside `apply_fieldview_transforms` (`pass_manager.py`) inlines a **kolor-restricted** inner `as_fieldop` (e.g. `as_fieldop(shift(Kolor,-2), Kolor:[2,3))(dwdz)`) into an outer `as_fieldop` with domain `Kolor:[0,3)`. The fused node keeps the OUTER domain. DaCe then evaluates `shift(Kolor,-2)` for all kolors 0–2, reading `dwdz[i,j,-2,k]` for kolor=0 → GPU OOB.
+
+This happens because `apply_divergence_damping_and_update_vn` uses E2C2EO connectivity (non-split SetAt path). `NeighborReductionUnroller._visit_expr_with_kolor_branches` peels 3 kolor branches and for each visits with `current_kolor=k`. Inside each branch, `_build_field_concat_where_from_branches` (when `current_kolor is not None`) returns `_make_lifted_deref_shift(field, shifts, per_kolor_domain)` — a per-kolor `as_fieldop` with domain `Kolor:[k,k+1)`. These per-kolor inner `as_fieldop`s are args of an outer accumulation `as_fieldop`. FuseAsFieldOp inlines them, losing the kolor restriction.
+
+**Confirmed** via `[FUSE]` debug print in `fuse_as_fieldop.py`. The previous session showed `outer_kolor=[0,1) inlining arg[0] inner_kolor=[2,3)` before a fix was attempted.
+
+**Attempted fix v1 (inner_kolor != outer_kolor guard)**:
+```python
+def _kolor_interval(n):
+    dom = n.fun.args[1] if cpm.is_applied_as_fieldop(n) and len(n.fun.args) > 1 else None
+    if dom is None or not cpm.is_call_to(dom, "cartesian_domain"):
+        return None
+    for r in dom.args:
+        if (cpm.is_call_to(r, "named_range") and len(r.args) == 3
+                and getattr(r.args[0], "value", None) == "Kolor"):
+            lo, hi = r.args[1], r.args[2]
+            if isinstance(lo, itir.OffsetLiteral) and isinstance(hi, itir.OffsetLiteral):
+                return (lo.value, hi.value)
+    return None
+outer_kolor = _kolor_interval(node)
+if outer_kolor is not None:
+    for i, (arg, elig) in enumerate(zip(args, eligible_els)):
+        if elig and cpm.is_applied_as_fieldop(arg):
+            inner_kolor = _kolor_interval(arg)
+            if inner_kolor is not None and inner_kolor != outer_kolor:
+                eligible_els[i] = False
+```
+
+**Why fix v1 failed**: All fusions print `outer_kolor=? inner_kolor=?` — `_kolor_interval` returns `None` for every node. The fix never triggers.
+
+**Root cause of detection failure (theories, not yet confirmed)**:
+
+Theory A — `ConstantFolding` converts `ir.OffsetLiteral` to `ir.Literal`:
+- `_make_lifted_deref_shift` creates per-kolor `as_fieldop` with domain containing `named_range(Kolor, ir.OffsetLiteral(0), ir.OffsetLiteral(1))`.
+- `ConstantFolding.apply(ir)` runs at `pass_manager.py:524` (after structured passes, before the fusion loop at :545).
+- If `ConstantFolding` replaces `ir.OffsetLiteral(value=0)` with `ir.Literal(value="0", type=int32)`, then `isinstance(lo, itir.OffsetLiteral)` → False → `_kolor_interval` returns None.
+- **Most likely theory.** Fix: extend the isinstance check to also accept `ir.Literal`.
+
+Theory B — `InferDomainOps` or `canonicalize_domain_argument` transforms domain structure:
+- `infer_domain_ops.InferDomainOps.apply(ir)` at :509 and `concat_where.canonicalize_domain_argument(ir)` at :511 run between structured passes and `infer_domain`. These might change how the `as_fieldop` domain is stored. Specifically, `canonicalize_domain_argument` might remove explicit domain args from `as_fieldop` and store them only in `node.annex.domain`.
+- If the domain is moved to `node.annex.domain` only (not `node.fun.args[1]`), then `len(n.fun.args) <= 1` → returns None.
+- Check: look at `canonicalize_domain_argument` source.
+
+Theory C — Both outer AND inner show `?`:
+- The outer accumulation `as_fieldop` was created with a domain (`domain = per_kolor_domain`) in `_build_generic_unrolled_reduce_expr`. But after `InlineLambdas` + `ConstantFolding` + `CollapseTuple` + `InlineScalar` + `SimplifyCartesianShifts` + `CSE` + `MergeLet`, it may be transformed into a different form.
+- However, the inner per-kolor `as_fieldop` (`_make_lifted_deref_shift`) should be a simpler node that survives preprocessing. If both show `?`, this suggests the domain representation is being changed (Theory A or B).
+- Note: the outer `as_fieldop` guard (`if outer_kolor is not None:`) is also wrong — should check inner kolor without requiring outer kolor to be known first. See proposed fix v2 below.
+
+**Proposed fix v2 (remove outer_kolor gate, extend isinstance check)**:
+```python
+def _kolor_interval(n: itir.Expr):
+    dom = n.fun.args[1] if cpm.is_applied_as_fieldop(n) and len(n.fun.args) > 1 else None
+    if dom is None or not cpm.is_call_to(dom, "cartesian_domain"):
+        return None
+    for r in dom.args:
+        if (cpm.is_call_to(r, "named_range") and len(r.args) == 3
+                and getattr(r.args[0], "value", None) == "Kolor"):
+            lo, hi = r.args[1], r.args[2]
+            lo_val = lo.value if isinstance(lo.value, int) else (int(lo.value) if isinstance(lo.value, str) and lo.value.isdigit() else None)
+            hi_val = hi.value if isinstance(hi.value, int) else (int(hi.value) if isinstance(hi.value, str) and hi.value.isdigit() else None)
+            if lo_val is not None and hi_val is not None:
+                return (lo_val, hi_val)
+    return None
+# Block fusion when inner has a kolor restriction that outer doesn't share:
+for i, (arg, elig) in enumerate(zip(args, eligible_els)):
+    if elig and cpm.is_applied_as_fieldop(arg):
+        inner_kolor = _kolor_interval(arg)
+        if inner_kolor is not None and inner_kolor != outer_kolor:
+            eligible_els[i] = False
+```
+
+**Diagnostic plan (before next run)**:
+Add prints in `_kolor_interval` showing:
+1. Whether `is_applied_as_fieldop` passes
+2. Whether `len(n.fun.args) > 1` passes
+3. Type of `dom` if not `cartesian_domain`
+4. Axis names found in domain if Kolor not present
+5. Types of `lo`/`hi` if Kolor found but type check fails
+
+This will definitively identify which condition fails.
+
+**File**: `gt4py/src/gt4py/next/iterator/transforms/fuse_as_fieldop.py`, function `transform_fuse_as_fieldop`.
+**Pass pipeline context**: Fusion loop at `pass_manager.py:545–586`, specifically `FuseAsFieldOp.apply` at :567.
+
+---
+
+### Update 2026-05-15 (evening) — Bug 04 investigation: false leads ruled out, real root cause located
+
+Multiple hypotheses for the `apply_divergence_damping_and_update_vn` GPU OOB have now been ruled out:
+
+1. **`FuseAsFieldOp` cross-kolor fusion was NOT the cause.** The kolor-range guard added in `fuse_as_fieldop.py:transform_fuse_as_fieldop` works correctly (detects `[0,1)`, `[1,2)`, `[2,3)`) but blocks no problematic fusion — the test still fails identically. Guard left in place (harmless).
+2. **Negative kolor IR ranges (`[-1,3)`, `[-2,3)`) were NOT the cause.** User clamped them in `pass_manager.py` (since reverted) and the OOB persisted. They appeared in the IR but were not the root cause.
+3. **Padding cell fields to 3 Kolors makes no sense** — other E2C stencils (with cell-field access) pass cleanly. The bug is stencil-specific.
+
+#### Pipeline gating note (reverted)
+A new env-var gate `GT4PY_ENABLE_FIELDVIEW_STRUCTURED` was added at `pass_manager.py:509` to disable the structured pass block of `apply_fieldview_transforms` for DaCe. This caused a **second, different bug**: a SDFG binding type mismatch (`ValueError: zip() argument 2 is shorter than argument 1`) on `horizontal_gradient_of_normal_wind_divergence`. Root cause: the binding-time type remap at `translation.py:629` runs unconditionally on `USE_STRUCTURED_BACKEND=1`, so disabling the IR-side remap breaks consistency. **The new gate was reverted**, restoring the single `USE_STRUCTURED_BACKEND=1` check at `apply_fieldview_transforms`. The user's `apply_common_transforms` param additions (`transform_concat_where_to_as_fieldop`, `enable_structured_backend_transforms`) and the auto-disable heuristic for `FuseAsFieldOp` on E2C2E/E2C2EO connectivities are kept — they're independent of this bug.
+
+#### Concrete root cause (verified at CUDA kernel level)
+
+The failing kernel `copy_dwdz_at_cells_on_model_levels_gtir_tmp_150_map_0_1_85` (cache file at `.gt4py_cache/.../src/cuda/apply_divergence_damping_and_update_vn_cuda.cu:1330`) reads `dwdz_at_cells_on_model_levels` (a CELL field with Kolor=2) at offsets `__j2 + {-2, -1, 0, +1}`. The kernel iterates `__j2 ∈ {0}` only (loop guard at line 1350), so the absolute Kolor indices read are `{-2, -1, 0, 1}` → reads at Kolor `-2` and `-1` are out of bounds → `CUDA_ERROR_ILLEGAL_ADDRESS`.
+
+Each kernel block writes to a different output Kolor via the destination base offset (0, 254520, 509040 for Kolors 0, 1, 2). The kernel handles all 3 output edge Kolors in one launch by unrolling Kolor into base offsets for the writes, but the input reads still use `__j2 + shift_offset` formula where `__j2` is restricted to a single value — the read side is not properly aligned with the unrolled output Kolor.
+
+This is **not** a constant-grid bug — at 26×26 the OOB happens to land in adjacent mapped GPU pages so the test passes; at 512×512 it lands outside any allocation and CUDA traps it (Bug 6 pattern from this CLAUDE.md, but a different stencil and different precise mechanism).
+
+#### IR-level root cause (the actual fix point)
+
+Comparing the FINAL IR between grafrap3 (fails) and grafrap_dace (passes) shows the **structural difference** around the same `as_fieldop(_OffKolor:-2, Kolor:[0,3))(dwdz)` access:
+
+| | grafrap3 (fails — `apply_fieldview_transforms` for DaCe) | grafrap_dace (passes — `apply_common_transforms` for DaCe) |
+|---|---|---|
+| dwdz Kolor:-2 wrapping | **let-lifted** — `(λ __cwcda_field_a_ → ...)(as_fieldop(_OffKolor:-2, [0,3))(dwdz))`. The bad `as_fieldop` is a let-bound value with effective domain `Kolor:[0,3)`. | **inline** — `concat_where(Kolor:[0,1), a, concat_where(Kolor:[1,2), b, as_fieldop(_OffKolor:-2, [0,3))(dwdz)))`. The bad `as_fieldop` sits inside the kolor-2 branch only. |
+| Other branches' Kolor domain | Narrowed to `[0,1)` and `[1,2)` by `prune_empty_concat_where`/`infer_domain` | All `[0,3)` (not narrowed) |
+
+The IR semantics are equivalent in both cases — only the kolor-2 output of `_OffKolor:-2` is ever selected. But the DaCe lowering treats them very differently:
+- **grafrap_dace (inline form)**: The `as_fieldop` is inside the concat_where's else branch. DaCe lowers each concat_where branch as a conditional computation; the effective execution domain is the intersection of the `as_fieldop`'s domain `[0,3)` and the concat_where's "kolor 2 reaches here" path → only Kolor 2 is computed → input read at Kolor 0 → valid.
+- **grafrap3 (let-lifted form)**: The `as_fieldop` is bound to `__cwcda_field_a_` and used in multiple places. DaCe **materializes** the let-bound value as a separate device-side transient, computing the `as_fieldop` over its full declared domain `Kolor:[0,3)`. For output Kolor 0 (write) the input read uses `0 + (-2) = -2` → OOB.
+
+The let-lifting comes from `concat_where.canonicalize_domain_argument` (`canonicalize_domain_argument.py:33-119`), which transforms `concat_where(and_(d1, d2), a, b)` (and similar) into a let-bound nested form via the `__cwcda_field_*` pattern. This canonicalization runs in **both** pipelines, but the inputs it sees diverge — grafrap3 reaches it with the IR pattern that triggers the lift; grafrap_dace either doesn't, or the subsequent `apply_common_transforms` fusion loop inlines the cwcda lets back via `MergeLet` / `InlineLambdas` aggressive settings at `pass_manager.py:423-424` (which `apply_fieldview_transforms` does not call in the same way).
+
+#### Next planned step (not yet executed)
+
+**Targeted experiment**: comment out the single line `pass_manager.py:511 ir = concat_where.canonicalize_domain_argument(ir)` inside `apply_fieldview_transforms` only, rerun `apply_divergence_damping_and_update_vn` at 512×512 GPU.
+
+- If the OOB disappears (test runs further or passes), the let-lifting is confirmed as the trigger. Then the fix is either (a) gate `canonicalize_domain_argument` off for the DaCe path of `apply_fieldview_transforms`, or (b) make `canonicalize_domain_argument` not lift `as_fieldop` nodes whose shifts produce different validity domains.
+- If the OOB persists, the let-lifting is not the cause — fall back to user's suggested **stencil-reduction strategy**: remove parts of `_apply_divergence_damping_and_update_vn` until the OOB disappears, bisect to find the smallest IR construct that triggers it. The test will not validate against numpy reference (since the stencil is modified), but `--skip-stenciltest-verification` allows the runtime failure mode itself to be observed.
+
+#### What to avoid going forward
+
+- **No more changes to `fuse_as_fieldop.py`** for this bug — guard is harmless but does not address the root cause.
+- **Do not pad cell fields to 3 Kolors** — other E2C-on-cell stencils pass with the existing 2-kolor layout. The bug is specific to this stencil's IR structure interacting with DaCe materialization, not a generic layout issue.
+- **Do not chase negative-kolor IR domains** as the cause — they appear in the IR but DaCe handles them correctly when the `as_fieldop` is inline; the negative-domain materialization is only an issue when let-lifted.
+
+---
+
+### Update 2026-05-16 — Bug 04: Kolor=5 widening pinpointed to second `infer_program` call
+
+`ir_out.txt` is **automatically populated on every run** by `_print_ir_block(...)` calls scattered through `pass_manager.py:apply_fieldview_transforms`. After any test, grep `ir_out.txt` for the section headers — they bracket the IR after each pass:
+- `=== FIELDVIEW IR BEFORE TRANSFORMS ===`
+- `=== FIELDVIEW IR AFTER PROCESSING DOMAIN OPTIONS ===`
+- `=== FIELDVIEW IR AFTER INLINING FUNDEFS ===`
+- `=== FIELDVIEW IR AFTER DEAD CODE ELIMINATION ===`
+- `=== FIELDVIEW IR AFTER CARTESIAN UNROLLING ===` (structured passes done — IR is correct here)
+- `=== FIELDVIEW IR AFTER INFERRING DOMAIN OPS ===` (first `InferDomainOps.apply` — still correct: Kolor:[0ₒ,3ₒ) with offset subscripts)
+- `=== FIELDVIEW IR AFTER PRUNING EMPTY CONCAT WHERE ===` (**Kolor:[0,5) appears here** — widening already happened)
+- `=== FINAL FIELDVIEW IR ===` (after structured fusion loop + final infer_program)
+
+Workflow: after any run, `grep -n "Kolorₕ: \[0, 5\|Kolorₕ: \[2, 5\|Kolorₕ: \[1, 4" ir_out.txt` shows where the bad widening lives; `grep -n "^===" ir_out.txt` shows the section boundaries.
+
+#### What Fix A and Fix B both missed
+
+Fix A (per-branch Kolor narrowing in `_build_field_concat_where_from_branches`) and Fix B (top-down `KolorConstantPropagation` between unroller and `canonicalize_domain_argument`) both run **before** `=== AFTER CARTESIAN UNROLLING ===`. They correctly produce IR with `Kolorₕ:[0ₒ,1ₒ)` per branch. Then a later pass re-widens to `Kolorₕ:[0,5)`.
+
+#### Where the widening enters
+
+Between `=== AFTER INFERRING DOMAIN OPS ===` (line 1377 in the `diag_v5` ir_out.txt) and `=== AFTER PRUNING EMPTY CONCAT WHERE ===` (line 1612), three passes run (`pass_manager.py:538–553`):
+
+```python
+ir = concat_where.canonicalize_domain_argument(ir)   # 538
+ir = ConstantFolding.apply(ir)                        # 540
+ir = infer_domain.infer_program(                      # 546 — SECOND domain inference
+    ir,
+    symbolic_domain_sizes=symbolic_domain_sizes,
+    offset_provider=offset_provider,
+)
+ir = ConstantFolding.apply(ir)                        # 551
+ir = prune_empty_concat_where.prune_empty_concat_where(ir)  # 553
+```
+
+In the new IR dump (`diag_v5/01_*.txt → ir_out.txt`), Kolor widenings first appear at line 1758 of `ir_out.txt`:
+- `Kolorₕ: [2, 5)` on `horizontal_gradient_of_total_divergenceᐞ0` (line 1758) — source domain inferred from output `Kolor:[0,3)` shifted by `_OffKolor:+2` → `[2, 5)`. Edge field only has Kolor 0,1,2 → indices 3, 4 are **OOB**.
+- `Kolorₕ: [1, 4)` (line 1771) — output `Kolor:[0,3)` shifted by `_OffKolor:+1` → `[1, 4)`. Edge field has Kolor 0,1,2 → index 3 is **OOB**.
+- `Kolorₕ: [0, 5)` on the outermost `as_fieldop` wrapping `dwdz_at_cells_on_model_levels` (lines 1881–1907) — the **union** of all source domains: `min(0, 1, 2) = 0`, `max(3, 4, 5) = 5` → `[0, 5)`. Cell field has Kolor 0,1 → indices 2,3,4 are **OOB**.
+
+The notation `[0, 5)` (without `ₒ` subscript) is plain `ir.Literal`, vs `[0ₒ, 3ₒ)` (with subscript) which is `ir.OffsetLiteral`. The widened ones are *new* `ir.Literal` nodes created by `infer_program`, not the original `ir.OffsetLiteral` ones from `CartesianDomainAndTypeRemapper`.
+
+#### Why `infer_program` over-widens
+
+`infer_program` performs top-down domain inference: for each consumer with output domain D, it computes each producer's required source domain by applying the shift offsets. It treats `_OffKolor:+k` as a Cartesian shift over an unbounded axis: `src_domain[Kolor] = output_domain[Kolor] + k`. It has no model of *entity-specific Kolor extent* (edge=3, cell=2) and no respect for the **per-Kolor concat_where structure** that wraps each shift in a branch only reached for a specific output Kolor.
+
+So for the IR pattern produced by `CartesianReductionUnroller` — a non-split SetAt over `Kolor:[0,3)` with three concat_where branches, where the kolor-k branch uses shifts `(di_k, dj_k, dkolor_k)` chosen so that `(0 + dkolor_0) ∈ valid_cell_kolor`, `(1 + dkolor_1) ∈ valid_cell_kolor`, etc. — `infer_program` flattens out the per-branch context and computes source domain = output domain `[0,3)` + every shift, giving `[2,5)` for `dkolor=+2`, `[1,4)` for `dkolor=+1`, then unions them to `[0,5)` on the dwdz access.
+
+The first `InferDomainOps.apply` (line 536, before `canonicalize_domain_argument`) was *also* top-down, but it ran on IR where the per-branch concat_where structure was still intact and visible: each shift was inside a branch with `Kolor:[k,k+1)`, so the inferred source domain was `Kolor:[k+dkolor_k, k+dkolor_k+1)` — exactly **one** valid kolor slot, never widened. `canonicalize_domain_argument` then flattens (or let-lifts) the concat_where into a form where the shift's surrounding domain context is no longer one-Kolor wide, and the second `infer_program` does the damage.
+
+#### Proposed fix candidates (in increasing risk order)
+
+1. **Drop the second `infer_program` call at line 546.** The first `InferDomainOps.apply` already set every node's `annex.domain`. `canonicalize_domain_argument` introduces let-bindings whose new nodes lack `annex.domain` — *that* is why the second inference is needed for downstream `gtir_to_sdfg_concat_where.translate_concat_where`. Risk: same `AttributeError` we hit before. Mitigation: replace the second `infer_program` with a lighter pass that only repopulates missing `annex.domain` without re-doing inference, OR push the second `infer_program` to *after* the fusion loop but skip the `prune_empty_concat_where` dependency.
+2. **Run `prune_empty_concat_where` BEFORE the second `infer_program`.** If pruning removes the empty branches first, the remaining IR has fewer shifts to widen across. Risk: pruning needs `annex.domain` to be set, but the first inference at line 536 already sets it, so this might be valid.
+3. **Teach `infer_program` to respect entity Kolor sizes** via `symbolic_domain_sizes`. Pass per-axis-per-entity max extent and clamp inferred source domain to it. Risk: invasive change to the inference pass.
+4. **Bottom-up domain inference** (user's earlier suggestion): start from each shift's known source (`dwdz` has Kolor=2, edge has Kolor=3) and propagate the *exact* required domain upward through the IR tree, intersecting with the consumer's domain at each step. This is a new pass. Most surgically correct but largest implementation effort.
+
+Recommended first experiment: **(2)** — reorder `prune_empty_concat_where` to before the second `infer_program`. It's a one-line move with minimal risk. If the IR still widens, fall back to **(1)** with an `annex.domain` repopulation helper.
+
+#### How to verify after a fix
+
+After the run, check `ir_out.txt` for:
+- `grep -c "Kolorₕ: \[0, 5\|Kolorₕ: \[2, 5\|Kolorₕ: \[1, 4" ir_out.txt` should return **0**.
+- `=== FINAL FIELDVIEW IR ===` section should show all Kolor ranges as `[0,1)`, `[0,2)`, `[0,3)`, or per-Kolor branch `[k,k+1)`.
+- Then the test on 512² GPU should pass without `--skip-stenciltest-verification`.
+
+---
+
+### Update 2026-05-17 — Bug 04: clamping invalid Kolor ranges yields NaN; `keep_existing_domains=True` is the real fix
+
+#### Clamp-v3 result (dace_cpu, 512×512, full `apply_divergence_damping_and_update_vn`)
+
+The "clamp invalid Kolor ranges to `Kolor:[0,0)`" pass at `pass_manager.py:559–616` was finalized as **clamp v3**: handles both `ir.OffsetLiteral` and `ir.Literal` (str-valued) bounds via a `_to_int` helper; preserves the original literal class via a `ctor` lambda; preserves `node.annex.domain` for downstream `prune_empty_concat_where` via `PRESERVED_ANNEX_ATTRS = ("domain",)`.
+
+Clamp-v3 ran to completion (no OOB) but the test fails with **`nan location mismatch`** in `next_vn`. DaCe correctly treats `Kolor:[0,0)` (empty) as a no-op; the cpu run logs ~25 maps `map_N_fieldop is 4:509, 3:509, 0:0, vertical_start:vertical_end ... will be turned into no-ops`. **Skipping these maps drops the very computations the stencil needs** → output cells uninitialised → NaN.
+
+Conclusion: clamping cannot recover the answer. The invalid Kolor ranges are not "dead branches the IR will skip anyway" — they are real computations whose **source domain** the 2nd `infer_program` mis-widened. The IR's intent before `canonicalize_domain_argument` was "evaluate this inner `as_fieldop` only for the kolor where its shift is valid, under the concat_where that wraps it". After let-lifting, the 2nd `infer_program` re-infers source domain from the outer `Kolor:[0,3)` and the shift offset, producing `Kolor:[2,5)` etc. — the per-branch Kolor restriction is gone.
+
+#### `keep_existing_domains=True`: the right knob
+
+`infer_domain.infer_program` accepts `keep_existing_domains: bool = False` ([infer_domain.py:519](/scratch/mch/rgraf/gt4py/src/gt4py/next/iterator/transforms/infer_domain.py#L519)). The parameter is gated at [infer_domain.py:232-233](/scratch/mch/rgraf/gt4py/src/gt4py/next/iterator/transforms/infer_domain.py#L232) in `_infer_as_fieldop`:
+
+```python
+if len(applied_fieldop.fun.args) == 2 and keep_existing_domains:
+    target_domain = SymbolicDomain.from_expr(applied_fieldop.fun.args[1])
+```
+
+When an `as_fieldop` has an explicit `(stencil, domain)` form, the existing domain is used as the target instead of propagating the outer target_domain in. The docstring at [infer_domain.py:536-541](/scratch/mch/rgraf/gt4py/src/gt4py/next/iterator/transforms/infer_domain.py#L536) describes *exactly* our scenario:
+
+> `keep_existing_domains`: If `True`, keep existing domains in `as_fieldop` expressions and use them to propagate the domain further. This is useful in cases where after a transformation some nodes are missing domain information that needs to be repopulated, but we can't reinfer everything because some domain access information has been lost. **For example when a `concat_where` is transformed into an `as_fieldop` with an if we lose some information that could lead to unnecessary overcomputation and out-of-bounds accesses.**
+
+`canonicalize_domain_argument` is that "concat_where → as_fieldop" transform. The inner `as_fieldop`s it lets-lifts have explicit narrow Kolor domains (e.g. `Kolor:[0,1)`); the 2nd `infer_program` at [pass_manager.py:544](/scratch/mch/rgraf/gt4py/src/gt4py/next/iterator/transforms/pass_manager.py#L544) must pass `keep_existing_domains=True` so those explicit domains are not overridden by the outer `Kolor:[0,3)`.
+
+This is more elegant than the original "Fix 3 (entity-aware clamping)" plan from the previous note: it prevents the widening at its source instead of trying to clean up afterwards. Implementation: one-line change at line 544 (add `keep_existing_domains=True`), then delete the entire `_ClampInvalidKolor` pass (lines 551–616).
+
+#### Verification plan after applying
+
+After the run, check `ir_out.txt`:
+- `grep -c "Kolorₕ: \[0, 5\|Kolorₕ: \[2, 5\|Kolorₕ: \[1, 4\|Kolorₕ: \[-1\|Kolorₕ: \[3, 2" ir_out.txt` should return **0**.
+- `=== FIELDVIEW IR AFTER CLAMP INVALID KOLOR ===` block no longer exists (pass deleted).
+- DaCe CPU run: no `... will be turned into no-ops` warnings for Kolor ranges.
+- `dace_cpu` numerical comparison passes; if so, retry `dace_gpu` at 512×512 to confirm the original OOB is gone.
+
+#### Fallback if `keep_existing_domains=True` is incomplete
+
+If some `as_fieldop`s lack an explicit domain at the time of the 2nd `infer_program` (e.g. ones synthesised by `canonicalize_domain_argument` itself), they will still get re-inferred from the outer target and widen. In that case, fall back to **entity-aware clamping** ("original Fix 3"):
+1. In `apply_fieldview_transforms` (or `cartesian_interceptor.py`), walk the IR's Program params **before** `StructuredTypeRemapper` runs. Inject `symbolic_domain_sizes["__field_kolor_extent__"] = {param_name: 3 for Edge, 2 for Cell, 1 for Vertex}`.
+2. In `infer_domain._extract_accessed_domains`, after computing `accessed_domains[in_field_id]`, intersect the Kolor range with `[0, __field_kolor_extent__[in_field_id])` when the field name has a known extent.
+
+---
+
+### Update 2026-05-17 (continued) — Bug 04: keep_existing_domains alone isn't enough; need narrow per-branch Kolor in `_build_field_concat_where_from_branches`
+
+#### `keep_existing_domains=True` ran on CPU but still SIGSEGV-ed
+
+After applying `keep_existing_domains=True` and deleting the clamp pass, `dace_cpu` 512×512 SIGSEGVed inside `fast_call`. The IR still showed widened Kolor ranges on the inner cast wrappers:
+- `Kolor:[-2, 5)`, `[2, 5)`, `[1, 4)`, `[-1, 2)`, `[-2, 1)`.
+
+`keep_existing_domains` only preserves the existing domain on `as_fieldop` nodes that *already had* a domain. The widening source turned out to be deeper: the **inner branch `as_fieldop`s** produced by `_build_field_concat_where_from_branches` already stored the full outer `Kolor:[0,3)` as their own domain (not the per-branch `[k,k+1)`). Then `infer_program` (even with `keep_existing_domains=True`) preserved that wide `[0,3)`, and the shift back-propagation `[0,3)+shift` produced the out-of-range source ranges.
+
+#### Narrow per-branch domain in `_build_field_concat_where_from_branches`
+
+File: [structured_backend_passes.py](/scratch/mch/rgraf/gt4py/src/gt4py/next/iterator/transforms/structured_backend_passes.py). Two changes at the non-`current_kolor` path of `_build_field_concat_where_from_branches`:
+
+1. **Helper `_narrow_domain_kolor(domain_expr, (lo, hi))`** — rebuilds a `cartesian_domain` replacing the Kolor `named_range` with `(lo, hi)`; preserves IDim/JDim/K and the OffsetLiteral type.
+2. **Use it before `_make_lifted_deref_shift`**:
+
+```python
+kolor_interval = _extract_kolor_interval(cond)
+if kolor_interval is None and source_kolor is not None:
+    kolor_interval = (source_kolor, source_kolor + 1)   # trailing else branch (cond=None)
+if kolor_interval is not None:
+    branch_domain = _narrow_domain_kolor(branch_domain, kolor_interval)
+expr = _make_lifted_deref_shift(arg, shift_spec, branch_domain)
+```
+
+The `cond=None` fallback is **critical** — every `map_dict.py` entry uses `(None, shift_for_kolor_n)` for its trailing else branch (the final per-kolor case). Without the fallback, that last branch's `as_fieldop` keeps the full outer `Kolor:[0,3)` and back-propagates to `[0,3)+shift_for_kolor_n` on the source. For `dwdz_at_cells_on_model_levels` (a 2-kolor cell field) and `shift -2` in the trailing else, this produced `Kolor:[-2,1)` → OOB reads at Kolor -2/-1.
+
+#### Results
+
+`output/cpu_narrowkolor/` (dace_cpu, 512×512):
+- No SIGSEGV. 30 successful iterations (3 rounds × 10 iter), steady-state exec ≈ 4.78s/call.
+- **Numerical comparison passes** — no `Verification failed`, no `nan location mismatch`. (The only failure logged is a benign `Metrics key could not be recovered during run` in the harness, after the benchmark completed.)
+- IR `[2,5)`, `[1,4)`, `[-2,5)` widenings are gone; remaining `[-1,2)`, `[-2,1)`, `[-2,3)` are masked by concat_where on CPU (page-adjacent reads land in valid memory).
+
+`output/gpu_narrowkolor/` (dace_gpu, 512×512, after first fix only, no trailing-else fallback):
+- Still `CUDA_ERROR_ILLEGAL_ADDRESS (700)`. The trailing `as_fieldop(shift -2)(dwdz)` with wide `Kolor:[0,3)` produced OOB reads on cell field (Kolor=2). GPU bounds-checking caught it; CPU silently absorbed it (this is why CPU passed but GPU crashed).
+- Identified by inspecting the IR: only the trailing branch had `Kolor:[0,3)` while the first two had `[0,1)`/`[1,2)`. Traced to `cond=None` for the trailing else in `map_dict.py`.
+
+`output/gpu_narrowkolor_v2/` (after the `cond=None` fallback):
+- **No more `CUDA_ERROR_ILLEGAL_ADDRESS`.** The narrow-Kolor fix is complete; OOB on the structured side is fully resolved.
+- New failure surfaced (separate bug): `AttributeError: 'ndarray' object has no attribute '__array_interface__'. Did you mean: '__cuda_array_interface__'?` at `dace/dtypes.py:1600` inside `fun.construct_arguments(**this_call_args)` ([decoration.py:70](/scratch/mch/rgraf/gt4py/src/gt4py/next/program_processors/runners/dace/workflow/decoration.py#L70)). DaCe is calling `array_interface_ptr(array, storage=CPU_Heap=4)` on a CuPy GPU array (`CuPyArrayField` shape `(513, 513, 3, 50)`). The SDFG declared this argument with `StorageType.CPU_Heap` while the caller passes a GPU array. This is **unrelated to the IR widening** — it's a structured-backend ↔ DaCe lowering / binding issue likely exposed by the changed SDFG topology (narrower domains may have promoted a previously-transient array to a top-level argument, inheriting default CPU storage).
+
+#### Fast IR-level unit tests
+
+`/scratch/mch/rgraf/icon4py/test_narrow_kolor_fix.py` — 4 tests, all pass in ~10s:
+
+1. `test_build_field_concat_where_narrows_kolor` — direct call to `_build_field_concat_where_from_branches`; asserts each per-kolor branch as_fieldop stores `Kolor:[k,k+1)`.
+2. `test_build_field_concat_where_narrows_trailing_else` — same with `cond=None` for the last branch (matching `map_dict.py` pattern); asserts the trailing else is also narrowed.
+3. `test_post_unroll_pipeline_no_widening_with_fix` — end-to-end: `InferDomainOps` → `canonicalize_domain_argument` → `infer_program(keep_existing_domains=True)` → `prune_empty_concat_where` on a minimal failing-pattern Program; asserts no widened Kolor ranges in the final IR.
+4. `test_post_unroll_pipeline_widens_without_keep_existing` — same pipeline with `keep_existing_domains=False`; observes the widening returning, documenting why the flag matters.
+
+Both narrow-domain regressions verified by temporarily reverting each fix and confirming the relevant test fails.
+
+Run:
+```
+uenv run --view default icon/25.2:v3 -- .venv/bin/python test_narrow_kolor_fix.py
+```
+
+#### Open follow-up: DaCe binding storage-class mismatch on GPU
+
+The remaining GPU error is **not** an IR / Kolor / structured-backend bug — it's that the DaCe SDFG lowering produces a parameter with `StorageType.CPU_Heap` while the wrapper hands it a CuPy GPU array. Plausible suspects:
+- `DaCeTranslator.__call__` already remaps argument *types* under `USE_STRUCTURED_BACKEND=1` (Edge → IDim/JDim/Kolor) but doesn't override the *storage class*. On GPU it likely needs to also stamp `StorageType.GPU_Global` on field parameters.
+- An argument that was a transient in the old SDFG is now top-level, inheriting `StorageType.CPU_Heap` from a default elsewhere.
+
+Investigation path (no code changes yet, just diagnosis):
+1. Dump the SDFG (`.gt4py_cache/.../sdfg/*.sdfg`) and grep for `"storage"` values per argument; find the one that says `CPU_Heap`.
+2. Diff against the SDFG from a stencil that DOES work on GPU at 512×512 (e.g., `compute_avg_vn_and_graddiv_vn_and_vt`).
+3. Re-run on a 26×26 grid to see whether this is a topology-dependent or shape-dependent issue.
+
 ### Remaining Bug — Stencil 03 (C2E2CO): Wrong `cell_to_ijk` mapping (open)
 
 **Symptom**: `ddt_w_adv` has ~1% wrong elements on `dace_gpu`; passes on `dace_cpu` and `gtfn`. FuseAsFieldOp is **not** the cause (confirmed: disabling fusion gives same ~1% failure).
@@ -899,6 +1217,145 @@ The domain should be **symmetric**: either [0,26) for both (if all boundary cell
 
 **Next step**: Print the structured (IDim, JDim, kolor) positions for cells near the LATERAL_BOUNDARY zone boundary and verify they match expected interior positions.
 
+---
+
+### Update 2026-05-17 (continued) — Bug 04 GPU: DaCe lowering of narrow-Kolor `as_fieldop` with non-zero output Kolor is broken
+
+After the narrow-Kolor + cond=None fixes, `dace_cpu` 512² passes numerically (30 iter, no SEGV, no NaN). `dace_gpu` 512² no longer hits `CUDA_ERROR_ILLEGAL_ADDRESS` from the original widening, but exposes a new failure: DaCe's SDFG construction produces a memlet with literally negative Kolor index for `dwdz_at_cells_on_model_levels` (a 2-kolor cell field), e.g. `dwdz[3:23, 3:23, -2:-2, vstart:vend]`. SDFG validation rejects it as "Memlet subset negative out-of-bounds".
+
+#### What changed in the wrapper / translation step (kept, both required)
+
+- `cartesian_interceptor.py`: `auto_optimize=False` in `make_dace_backend(...)`. With it `True`, `gt_auto_optimize` raises `InvalidSDFGEdgeError` early and the structured-backend's catch-and-fallback path used to leave the SDFG with `StorageType.CPU_Heap` (→ subsequent `array_interface_ptr(...)` AttributeError when the runtime hands DaCe a CuPy array). Switching to `False` makes `translation.py` take the simpler `elif on_gpu:` branch that calls `gt_substitute_compiletime_symbols + gt_gpu_transformation` → `StorageType.GPU_Global`.
+- `cartesian_interceptor.py`: `disable_field_origin_on_program_arguments=True`. Structured-backend fields are always allocated with origin 0 (pack/unpack writes from index 0). This setting substitutes the symbolic `<field>_<dim>_range_0` offsets with the constant `0` at compile time, which is necessary because `gt_substitute_compiletime_symbols(..., validate=True)` otherwise refuses memlets like `predictor_normal_wind_advective_tendency[1 - Kolor_range_0]` for `i_Kolor=1` (sympy can't prove `1 - Kolor_range_0 ≥ 0`).
+- `translation.py`: the gt_auto_optimize fallback path now also calls `gt_gpu_transformation` when `on_gpu` is true — harmless once `auto_optimize=False` so the fallback isn't entered, but documents the missing step for the future when `auto_optimize=True` is restored.
+
+#### The DaCe lowering bug for non-zero output Kolor
+
+With `auto_optimize=False` + `disable_field_origin=True`, GPU compilation still fails on the dwdz memlet. The IR is correct after my narrow-Kolor fixes:
+
+```text
+as_fieldop(
+  λ → ·⟪_OffKolor, -2⟫(it),
+  c⟨ IDimₕ: [4ₒ, 22ₒ[, JDimₕ: [4ₒ, 22ₒ[, Kolorₕ: [2ₒ, 3ₒ[, … ⟩
+)(dwdz_at_cells_on_model_levels)
+```
+
+Output Kolor: `[2, 3)`. Shift `-2`. Source Kolor: `2 + (-2) = 0`. Valid for cell field (Kolor = 2 → indices 0, 1).
+
+But the SDFG memlet for this branch's pre-state copy is `dwdz[..., -2, ...] → gtir_tmp_12[..., 0, ...]`. The output transient `gtir_tmp_12` has shape `[20, 20, 3, …]` with offset `[0, 0, 0, 0]` (full 3-Kolor extent, 0-based). DaCe's lowering of `as_fieldop` appears to:
+
+1. Allocate a temp / iterator with the OUTPUT domain's *local* (zero-based) indexing.
+2. Compute the source position as `local_iter_var + shift`.
+3. For our trailing branch the iterator at `local_i_Kolor=0` plus `shift=-2` gives source = `-2`. The required `+ output_origin_kolor = +2` step is missing.
+
+Without the narrow fix the same shift `-2` over a wider output `Kolor:[0,3)` produces source range `[-2, 1)` — still includes `-2` and `-1`, so the same OOB. On CPU these reads land on adjacent valid pages and the concat_where mask discards them, so numerical comparison happened to pass. GPU bounds-checking traps them and the SDFG validator catches the symbolic OOB even before launch.
+
+The cleanest fix is in DaCe's `gtir_to_sdfg` for `as_fieldop`: when the output domain start in a dimension is non-zero, the source memlet should be `local_iter + output_origin + shift` (i.e. work in *global* index space) rather than `local_iter + shift`. Locating the exact site requires diving into [gtir_to_sdfg_primitives.py:243 `translate_as_fieldop`](/scratch/mch/rgraf/gt4py/src/gt4py/next/program_processors/runners/dace/lowering/gtir_to_sdfg_primitives.py#L243) and [gtir_to_sdfg_concat_where.py:39 `_translate_concat_where_branch`](/scratch/mch/rgraf/gt4py/src/gt4py/next/program_processors/runners/dace/lowering/gtir_to_sdfg_concat_where.py#L39) (which already does the correct `source_range_0 - src_origin` arithmetic for its own pre-state copies, suggesting the inner-as_fieldop translation is the divergent path).
+
+#### Workarounds being considered
+
+1. **Per-stencil GPU bypass**: skip this stencil on `dace_gpu` until the lowering fix lands. Other 9/10 stencils already pass small-grid GPU.
+2. **Refactor narrow-Kolor fix to produce output starting at 0**: instead of `as_fieldop(shift=-2, Kolor:[2,3))(dwdz)`, emit `as_fieldop(shift=0, Kolor:[0,1))(dwdz_at_2)` where `dwdz_at_2` is a precomputed view of dwdz at Kolor=0. Complex; requires plumbing in `_build_field_concat_where_from_branches`.
+3. **Fix `translate_as_fieldop` in DaCe lowering directly** — the canonical fix. Risk: touches code shared with GTFN-equivalent paths.
+
+For now (per user instruction): proceed with `auto_optimize=False` + `disable_field_origin=True` + the narrow-Kolor IR fix. Track whether OTHER stencils still pass GPU at small grid. If yes, accept this one stencil as a known-fail and continue working on bigger problems.
+
+---
+
+### Update 2026-05-18 — narrowing the trailing-else (cond=None) branch breaks CPU; reverted
+
+The trailing-else `cond=None` fallback added on 2026-05-17 (which narrowed the third branch via `source_kolor`) successfully addressed one GPU OOB pattern, but **broke CPU at 512×512** (Fatal Python SIGSEGV inside `dace/codegen/compiled_sdfg.py:fast_call`). The bisection:
+
+| Setup | CPU 512×512 | GPU 512×512 |
+|---|---|---|
+| No narrow-Kolor fix (HEAD) | SEGV | `CUDA_ERROR_ILLEGAL_ADDRESS` |
+| Narrow first two branches only (cpu_narrowkolor) | ✅ PASSES | OOB |
+| Narrow all 3 branches incl. trailing else (cond=None fallback) | SEGV | OOB elsewhere |
+
+Why the trailing-else narrowing breaks CPU: the DaCe lowering of `as_fieldop(shift, Kolor:[2,3))(cell_field)` uses LOCAL temp indices to compute the shifted source — producing `dwdz[local + shift]` instead of `dwdz[local + output_origin + shift]`. Leaving at least one branch (the trailing) on the wider outer Kolor:[0,3) lets the per-kolor concat_where iteration overlap with valid source positions in a way that masks the OOB on CPU codegen. On GPU strict bounds-checking traps it regardless.
+
+**Current code state** (verified by `test_narrow_kolor_fix.py` — 4 tests pass):
+- `_build_field_concat_where_from_branches` narrows the per-kolor branches **only when `cond` provides an explicit Kolor interval**. Trailing-else branches (`cond=None`) stay wide.
+- The `cond=None` source-kolor fallback added during the GPU push has been **reverted**. The unit test `test_build_field_concat_where_trailing_else_stays_wide` now asserts this trade-off.
+- `keep_existing_domains=True` on the 2nd `infer_program` is preserved.
+- Wrapper settings restored to `auto_optimize=True`, `disable_field_origin_on_program_arguments=False` (= original known-working CPU state).
+- Translation.py keeps the `if on_gpu: gt_gpu_transformation(...)` in the gt_auto_optimize fallback path — harmless on CPU, useful when the GPU lowering bug is eventually fixed and the fallback runs.
+
+`apply_divergence_damping_and_update_vn` on `dace_gpu` 512×512 remains BROKEN until the DaCe `translate_as_fieldop` lowering is fixed to use `local + output_origin + shift` for non-zero output Kolor starts. Other GPU stencils (small grid) per the CLAUDE.md status table should be unaffected by this revert.
+
+---
+
+### Update 2026-05-18 — Bug 04 FIXED: trailing branch wrapped in concat_where (narrow_shift + identity-fallback)
+
+After empirically retesting in May 2026, the previous "DaCe lowering bug with `local + shift`" diagnostic turned out to be misleading. The real story of why narrowing the trailing branch broke CPU verification with `+inf location mismatch`:
+
+- Narrowing the trailing branch's as_fieldop output domain to `Kolor:[k, k+1)` produces a 1-slot Kolor temp array.
+- `canonicalize_domain_argument` let-lifts this temp out of the surrounding concat_where structure.
+- The let-lifted consumer reads the 1-slot temp at *other* kolors that are downstream-masked but **still materialized by DaCe** — those reads are OOB on the 1-slot temp, yielding `+inf`.
+
+DaCe's `_make_cartesian_shift` is in fact correct: `IteratorExpr.indices` holds the symbolic map variable, not a literal local index, so the shift adds offset to the symbolic var and the memlet ranges are computed correctly. The `+inf` came from the consumer side, not the lowering.
+
+#### The wrap fix (final)
+
+File: [`structured_backend_passes.py`](/scratch/mch/rgraf/gt4py/src/gt4py/next/iterator/transforms/structured_backend_passes.py). In `_build_field_concat_where_from_branches`, when handling the trailing-else branch (`len(branches) == 1` with `cond=None`), wrap the bare `as_fieldop` in an inner `concat_where`:
+
+```python
+if len(branches) == 1:
+    if source_kolor is not None and source_kolor > 0 and isinstance(branch_domain, ir.FunCall):
+        narrow_trailing_domain = _narrow_domain_kolor(
+            branch_domain, (source_kolor, source_kolor + 1)
+        )
+        narrow_trailing_expr = _make_lifted_deref_shift(
+            arg, shift_spec, narrow_trailing_domain
+        )
+        # Identity (no shift) on Kolor:[0, source_kolor) — reads arg at output position.
+        # Valid for cell/edge/vertex fields whose Kolor extent >= source_kolor.
+        identity_domain = _narrow_domain_kolor(branch_domain, (0, source_kolor))
+        identity_expr = _make_lifted_deref_shift(arg, (), identity_domain)
+        narrow_cond = im.call("cartesian_domain")(
+            im.named_range(
+                ir.AxisLiteral(value="Kolor", kind=common.DimensionKind.HORIZONTAL),
+                ir.OffsetLiteral(value=source_kolor),
+                ir.OffsetLiteral(value=source_kolor + 1),
+            )
+        )
+        return im.concat_where(narrow_cond, narrow_trailing_expr, identity_expr)
+    return expr
+```
+
+Effects:
+- The wrap's result is a wider field with **valid values at every Kolor in the SetAt range**:
+  - `Kolor=source_kolor`: actual trailing-shift result (e.g. shift `_OffKolor:-2` on cell at K=2 reads cell K=0).
+  - `Kolor in [0, source_kolor)`: identity read of `arg` at the output position (valid for cell K=0,1; edge K=0,1; vertex K=0).
+- Outer concat_where chain (from the rest of `_build_field_concat_where_from_branches`) still logically selects only the right kolor — the identity-fallback values are computed and stored but never consumed downstream.
+- After `canonicalize_domain_argument` + 2nd `infer_program(keep_existing_domains=True)`: the IR has no widened source ranges. No `Kolor:[-2,1)`, no `[2,5)`, no `[0,3)` on cell-field accesses.
+
+#### Validation matrix (post-fix)
+
+| Grid | Backend | Result | Steady-state exec |
+|---|---|---|---|
+| 26×26 | dace_cpu | ✅ PASSED | median 4.94 ms |
+| 26×26 | dace_gpu | ✅ PASSED | median 10.87 ms |
+| 512×512 | dace_cpu | ✅ PASSED | median 11.28 s |
+| **512×512** | **dace_gpu** | ✅ **PASSED** | **68 ms exec, 3.7 s round-trip (median)** |
+
+Numerical verification (with `--skip-stenciltest-verification` removed) passes in all four configurations. The earlier `+inf location mismatch` (from naïve narrowing) and `CUDA_ERROR_ILLEGAL_ADDRESS (700)` (from wide-trailing) are both resolved.
+
+#### Side-fixes landed at the same time (storage-migration fallout)
+
+Both unrelated to Bug 04 but in the same session:
+1. `.venv/bin/python` symlink dangling after MCH admins moved `$HOME` from mchstor1 to mchstor2. Fix: copy `cpython-3.10.17-linux-x86_64-gnu/` tree from `/users/rgraf/...` to `/scratch/mch/rgraf/cpython-3.10.17/`, relink `.venv/bin/python` to point there, update `home=` in `.venv/pyvenv.cfg`. Venv is now fully `/scratch/`-resident and survives any future home-mount changes.
+2. CuPy kernel cache defaulted to `$HOME/.cupy/kernel_cache`, which is unwritable on compute nodes post-migration. Fix in [`scripts/run_stencil_commands_slurm.sh`](/scratch/mch/rgraf/icon4py/scripts/run_stencil_commands_slurm.sh): export `CUPY_CACHE_DIR=${WORKDIR}/.cupy_cache`.
+
+#### Unit tests
+
+`/scratch/mch/rgraf/icon4py/test_narrow_kolor_fix.py` — 4 tests, all green in ~10s. The trailing-else test was retitled `test_build_field_concat_where_trailing_else_is_wrapped` and now asserts both:
+- The wrap produces an as_fieldop with narrow `Kolor:[source_kolor, source_kolor+1)`.
+- The wrap produces a complementary identity as_fieldop with `Kolor:[0, source_kolor)`.
+- No bare wide `Kolor:[0, 3)` remains on the trailing branch.
+
+Verified to catch regressions by temporarily disabling the wrap and confirming the test fails with "trailing else still has wide Kolor:[0,3)".
+
 ### Visualization scripts
 
 | Script | Field type | Key args |
@@ -909,3 +1366,195 @@ The domain should be **symmetric**: either [0,26) for both (if all boundary cell
 
 For the 26×26 grid: cell `--nx 26 --ny 26`, vertex `--nx 27 --ny 27`.
 For the 512×512 grid: cell `--nx 512 --ny 512`, vertex `--nx 513 --ny 513`.
+
+---
+
+## WORKFLOW CONSTRAINTS (mandatory, enforced from 2026-05-19)
+
+- **Stencil tests** (pytest with `--backend=dace_*` or `--backend=gtfn_*`): **always via `sbatch scripts/run_stencil_commands_slurm.sh`**. Never on login node, never via bare `srun`.
+- **Non-stencil Python tests** (e.g. `test_narrow_kolor_fix.py`, unit tests): **always via `srun`** on a debug/compute node. Never on login node.
+- **Small grid first**: run 26×26 before 512×512. Small-grid failures almost always predict large-grid failures (exception: GPU OOB that CPU silently absorbs — stencil 03 pattern).
+
+srun example for unit tests:
+```bash
+srun --partition=debug --time=00:05:00 --uenv=icon/25.2:v3 --view=default \
+  bash -c 'cd /scratch/mch/rgraf/icon4py && source .venv/bin/activate && python test_narrow_kolor_fix.py'
+```
+
+sbatch example for small-grid stencil sweep:
+```bash
+rm -rf /scratch/mch/rgraf/icon4py/.gt4py_cache
+sbatch scripts/run_stencil_commands_slurm.sh \
+  --command-file commands_stencils_small.txt \
+  --output-dir output/small_after_infer_fix/
+```
+
+---
+
+## Update 2026-05-19 — Two new fixes (stencils 01+10); stencils 05/06 open
+
+### Resume keyword: NARROWKOLOR-SWEEP
+
+Use this in a new session to immediately continue. State: Bug 04 fully fixed; Fixes A+B landed but not yet cluster-validated; stencils 05/06 open (Memlet OOB needs live IR). Next action: srun unit tests → sbatch small-grid sweep → inspect `ir_out.txt` for 05/06.
+
+### Context: sweep `output/big_update_dace_gpu/` revealed 4 failures
+
+After the Bug 04 concat_where-wrap fix (2026-05-18), a full 10-stencil `dace_gpu` sweep showed stencils **01, 05, 06, 10** failing. The other 6 passed.
+
+### Fix A — Stencil 01: `infer_domain.py` tuple-output as_fieldop AssertionError
+
+**File**: `../gt4py/src/gt4py/next/iterator/transforms/infer_domain.py`, line 239.
+
+**Symptom**: `AssertionError` inside `SymbolicDomain.from_expr(applied_fieldop.fun.args[1])` for `calculate_nabla2_and_smag_coefficients_for_vn` (E2C2V). The fused as_fieldop has a `make_tuple(domain_a, domain_b)` as `fun.args[1]` (two E2C2V sums). `SymbolicDomain.from_expr` only handles single-domain; blows up on `make_tuple`.
+
+**Fix**: Use `_make_symbolic_domain_tuple(applied_fieldop.fun.args[1])` instead (already defined at line 603; handles both single-domain and `make_tuple`). The downstream `isinstance(target_domain, tuple)` → `_domain_union` path collapses the tuple:
+
+```python
+if len(applied_fieldop.fun.args) == 2 and keep_existing_domains:
+    target_domain = _make_symbolic_domain_tuple(applied_fieldop.fun.args[1])
+```
+
+**Status**: Landed, confirmed in file.
+
+### Fix B — Stencil 10: literal-0 fallback for vertex-safe trailing-else wrap
+
+**File**: `../gt4py/src/gt4py/next/iterator/transforms/structured_backend_passes.py`, `_build_field_concat_where_from_branches`, ~line 450–480.
+
+**Symptom**: `apply_diffusion_to_vn` (E2C2V) crashed with `InlineSDFG` error on `gtir_tmp_108[0:509, 0:508, 0:0, ...]` — zero-sized Kolor dimension.
+
+**Root cause**: Previous identity-based fallback `_make_lifted_deref_shift(arg, (), identity_domain)` read `arg` (a vertex field, Kolor=1) in the fallback region `Kolor:[0, source_kolor)`. For vertex fields `source_kolor=1`, this 1-slot temp was let-lifted by `canonicalize_domain_argument` and consumed at multiple Kolor positions → DaCe produced a zero-sized Kolor dim in the concatenated result.
+
+**Fix**: Replace identity-deref with a **literal-0 as_fieldop** whose lambda ignores its argument (NEVER-arg → DaCe strips the field, no Kolor indexing in the fallback region):
+
+```python
+fallback_domain = _narrow_domain_kolor(branch_domain, (0, source_kolor))
+fallback_expr = im.as_fieldop(
+    im.lambda_("__cart_trailing_unused")(im.literal("0.0", "float64")),
+    fallback_domain,
+)(copy.deepcopy(arg))
+```
+
+The 0.0 values in `Kolor:[0, source_kolor)` are computed but never consumed by downstream concat_where. **Status**: Landed, confirmed in file.
+
+### Updated unit test file — 5 tests
+
+`/scratch/mch/rgraf/icon4py/test_narrow_kolor_fix.py`:
+
+1. `test_build_field_concat_where_narrows_kolor` — explicit-cond branches get `Kolor:[k,k+1)`.
+2. `test_build_field_concat_where_trailing_else_is_wrapped` — trailing else gets concat_where wrap; fallback body is literal 0.0 (not identity deref); no wide `Kolor:[0,3)`.
+3. `test_post_unroll_pipeline_no_widening_with_fix` — full pipeline; no widened Kolor ranges.
+4. `test_post_unroll_pipeline_widens_without_keep_existing` — documents why `keep_existing_domains=True` is needed.
+5. `test_infer_program_handles_tuple_output_as_fieldop` — as_fieldop with `make_tuple(dom_a, dom_b)` as fun.args[1]; verifies no AssertionError with `keep_existing_domains=True`.
+
+### Stencils 05/06 — Memlet OOB open
+
+**Stencil 05** (`compute_avg_vn_and_graddiv_vn_and_vt`) and **stencil 06** (`compute_advection_in_horizontal_momentum`) fail with `InvalidSDFGEdgeError: Memlet subset out-of-bounds` on `gtir_tmp_*[..., 0, ...]`. Throws at DaCe validation time — reproducible on `dace_cpu`.
+
+**Not yet investigated.** Likely the same Kolor-widening pattern as Bug 04, but for E2C2EO/E2C2E connectivity. After a run, check `ir_out.txt`:
+```bash
+grep -n "Kolorₕ: \[0, 5\|Kolorₕ: \[2, 5\|Kolorₕ: \[1, 4\|Kolorₕ: \[-[12]" ir_out.txt
+grep -n "^===" ir_out.txt   # section boundaries
+```
+
+### Local dace_cpu testing coverage
+
+Locally (no GPU) `dace_cpu` catches: Memlet OOB for 05/06, IR AssertionErrors for 01/10. Does NOT catch: GPU OOB that CPU silently absorbs (stencil 03 pattern). ~8/10 failure modes detectable locally.
+
+---
+
+## WORKFLOW CONSTRAINTS (must follow every session)
+
+1. **Stencil tests** → always via `sbatch scripts/run_stencil_commands_slurm.sh`. Never on login node, never srun.
+2. **Non-stencil Python tests** (unit tests, `test_narrow_kolor_fix.py`, etc.) → always via `srun --partition=debug --time=00:05:00 --uenv=icon/25.2:v3 --view=default bash -c '.venv/bin/python <file>'`. Never on login node.
+3. **Strategy**: run small grid (26×26) first to catch logical bugs, then big grid (512×512) to catch GPU OOB.
+
+---
+
+## Update 2026-05-19 — Two new fixes (stencils 01 and 10); stencils 05/06 open
+
+**Resume keyword: NARROWKOLOR-SWEEP**
+
+### Context
+
+A full 10-stencil sweep on `dace_gpu` (`output/big_update_dace_gpu/`) found 4 failures: stencils 01, 05, 06, 10. Two have been fixed; two remain open.
+
+### Fix A — Stencil 01: `infer_domain.py` crashes on tuple-output `as_fieldop`
+
+**File**: `/scratch/mch/rgraf/gt4py/src/gt4py/next/iterator/transforms/infer_domain.py`, line 239.
+
+**Symptom**: `AssertionError` inside `_infer_as_fieldop` when `keep_existing_domains=True` and the `as_fieldop` has a `make_tuple(domain_a, domain_b)` as `fun.args[1]` (tuple-output fieldop from fused E2C2EO sums, e.g. `calculate_nabla2_and_smag_coefficients_for_vn`).
+
+**Root cause**: `SymbolicDomain.from_expr(applied_fieldop.fun.args[1])` only handles single-domain expressions. `make_tuple(...)` hit the assertion.
+
+**Fix**: Replace with `_make_symbolic_domain_tuple(applied_fieldop.fun.args[1])` (already defined at line 603; handles both single-domain and `make_tuple`):
+```python
+if len(applied_fieldop.fun.args) == 2 and keep_existing_domains:
+    # fun.args[1] can be a single cartesian_domain or make_tuple of domains.
+    # _make_symbolic_domain_tuple handles both.
+    target_domain = _make_symbolic_domain_tuple(applied_fieldop.fun.args[1])
+```
+
+**Status**: Fix applied. Confirmed in file at line 239.
+
+### Fix B — Stencil 10: `InlineSDFG` crash from zero-sized Kolor dim on vertex fields
+
+**File**: `/scratch/mch/rgraf/gt4py/src/gt4py/next/iterator/transforms/structured_backend_passes.py`, `_build_field_concat_where_from_branches` (around line 450–480).
+
+**Symptom**: `InlineSDFG` crash with SDFG array `gtir_tmp_108[0:509, 0:508, 0:0, ...]` — zero-sized Kolor dimension. Only stencils touching vertex fields (E2C2V: stencils 01, 10).
+
+**Root cause**: The previous "identity fallback" `_make_lifted_deref_shift(arg, (), identity_domain)` on the trailing-else branch read the vertex field (Kolor=1) at output Kolor positions 0..source_kolor-1. For E2C2V where `source_kolor=2` (vertex at kolor 0 is accessed from edge kolor 2), this tried to read vertex field at Kolor indices 0 and 1 using the vertex field's shape — but vertex fields have Kolor extent = 1, so reading at Kolor=1 is OOB → DaCe materialized a zero-sized transient.
+
+**Fix**: Replace the identity-deref fallback with a **literal-0 constant** `as_fieldop` whose lambda ignores its argument. DaCe treats it as a NEVER-arg, strips the field reference, and generates a zero constant — no field reads, no OOB:
+```python
+fallback_expr = im.as_fieldop(
+    im.lambda_("__cart_trailing_unused")(im.literal("0.0", "float64")),
+    fallback_domain,
+)(copy.deepcopy(arg))
+```
+The outer concat_where logically selects only the `source_kolor` branch, so the `0.0` fallback is never consumed; it only needs to type-check and produce a valid-shape array.
+
+**Status**: Fix applied. Confirmed in file at lines 465–480.
+
+### Updated unit tests (test_narrow_kolor_fix.py — now 5 tests)
+
+File: `/scratch/mch/rgraf/icon4py/test_narrow_kolor_fix.py`
+
+1. `test_build_field_concat_where_narrows_kolor` — narrows explicit cond branches
+2. `test_build_field_concat_where_trailing_else_is_wrapped` — trailing cond=None is concat_where-wrapped with literal-0 fallback (not identity)
+3. `test_post_unroll_pipeline_no_widening_with_fix` — end-to-end no widening with keep_existing_domains=True
+4. `test_post_unroll_pipeline_widens_without_keep_existing` — documents the need for keep_existing_domains=True
+5. `test_infer_program_handles_tuple_output_as_fieldop` — tuple-output as_fieldop does not raise with keep_existing_domains=True
+
+Run via srun (not login node):
+```bash
+srun --partition=debug --time=00:05:00 --uenv=icon/25.2:v3 --view=default \
+  bash -c 'cd /scratch/mch/rgraf/icon4py && .venv/bin/python test_narrow_kolor_fix.py'
+```
+
+### Open: Stencils 05 and 06 — `InvalidSDFGEdgeError: Memlet subset out-of-bounds`
+
+Stencils 05 (`compute_avg_vn_and_graddiv_vn_and_vt`, E2C2EO+E2C2E) and 06 (`compute_advection_in_horizontal_momentum`, complex) fail with a DaCe SDFG validation error `InvalidSDFGEdgeError: Memlet subset out-of-bounds` on a `gtir_tmp_*[..., 0, ...]` node. This fires at SDFG construction time (not at GPU launch), so **it will also appear on dace_cpu** — making it reproducible locally.
+
+**Investigation plan**:
+1. Run stencil 05 or 06 on dace_cpu (locally or via sbatch) with `ir_out.txt` populated.
+2. Check `ir_out.txt` for any remaining Kolor widening in the `=== FINAL FIELDVIEW IR ===` section.
+3. Check the SDFG dump (`.gt4py_cache/.../sdfg/*.sdfg`) for the offending memlet and the array it references — compare shape vs memlet subset.
+
+**Most likely cause**: one of the two new fixes (literal-0 fallback or tuple-domain handling) changed the IR structure for E2C2E/E2C2EO connectivities in a way that produces a memlet whose subset exceeds the array shape. Specifically, the E2C2EO non-split SetAts have more complex interaction with `_visit_expr_with_kolor_branches` and `_e2c2e_on_local_intermediate`.
+
+### Next steps when cluster is available
+
+1. **srun unit tests** (verify 5 tests pass after both fixes):
+   ```bash
+   srun --partition=debug --time=00:05:00 --uenv=icon/25.2:v3 --view=default \
+     bash -c 'cd /scratch/mch/rgraf/icon4py && .venv/bin/python test_narrow_kolor_fix.py'
+   ```
+2. **sbatch small-grid sweep** (verify 01 and 10 now pass; find 05/06 error details in ir_out.txt):
+   ```bash
+   rm -rf /scratch/mch/rgraf/icon4py/.gt4py_cache
+   sbatch scripts/run_stencil_commands_slurm.sh \
+     --command-file commands_stencils_small.txt \
+     --output-dir output/small_after_infer_fix/
+   ```
+3. **Investigate 05/06** using `ir_out.txt` from the sweep above.
+4. **Alternatively**: commit and run `dace_cpu` locally first — stencils 05/06 Memlet OOB fires before any kernel launch so it reproduces on CPU. Only true GPU OOB (like the original trailing-branch issue) won't be caught locally.

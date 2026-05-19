@@ -6,8 +6,8 @@
 #SBATCH --gres=gpu:1
 #SBATCH --partition=debug
 #SBATCH --time=00:30:00
-#SBATCH --output=slurm_%j.out
-#SBATCH --error=slurm_%j.err
+#SBATCH --output=slurm/slurm_%j.out
+#SBATCH --error=slurm/slurm_%j.err
 #SBATCH --uenv=icon/25.2:v3
 #SBATCH --view=default
 
@@ -46,16 +46,23 @@ rm -rf "${WORKDIR}/.gt4py_cache" 2>/dev/null || true
 export GT4PY_COLLECT_METRICS_LEVEL=10
 export GT4PY_UNSTRUCTURED_HORIZONTAL_HAS_UNIT_STRIDE=0
 export USE_STRUCTURED_BACKEND=1
-export PYTHONOPTIMIZE=1
+# export PYTHONOPTIMIZE=1
 export MPICH_GPU_SUPPORT_ENABLED=1
 
 # CuPy settings for batch job GPU initialization
 export CUPY_CUDA_PER_THREAD_DEFAULT_STREAM=1
 export CUDA_DEVICE_ORDER=PCI_BUS_ID
 export CUDA_VISIBLE_DEVICES=0
+# Keep CuPy's kernel cache off $HOME (~/.cupy is unwritable on compute nodes
+# after the May-2026 home-storage migration).  Point it at /scratch instead.
+export CUPY_CACHE_DIR="${WORKDIR}/.cupy_cache"
+mkdir -p "${CUPY_CACHE_DIR}"
 
 # DEBUG: Enable synchronous CUDA error reporting
 export CUDA_LAUNCH_BLOCKING=1
+export USE_STRUCTURED_BACKEND=1
+export STRUCTURED_DEBUG_SHAPES=1
+export OMP_NUM_THREADS=1
 
 # help cmake find the right compiler
 export CC=gcc
@@ -65,6 +72,10 @@ export CXX=g++
 UENV_CMAKE_DIR=$(dirname "$(which cmake 2>/dev/null)")
 
 source ${WORKDIR}/.venv/bin/activate
+
+# print the python path and version:
+echo "=== Python environment check ==="
+echo "Python: $(which python) — $(python --version)"
 
 # Re-prepend the uenv cmake so it wins over the broken pip cmake in the venv
 [ -n "$UENV_CMAKE_DIR" ] && export PATH=${UENV_CMAKE_DIR}:$PATH

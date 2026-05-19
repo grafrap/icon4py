@@ -24,7 +24,7 @@ from icon4py.model.testing.stencil_tests import StencilTest
 
 def mo_math_divrot_rot_vertex_ri_dsl_numpy(
     connectivities: dict[gtx.Dimension, np.ndarray], vec_e: np.ndarray, geofac_rot: np.ndarray,
-    horizontal_start: int
+    horizontal_start: int = 0,
 ) -> np.ndarray:
     print(f"horizontal_start in the numpy reference: {horizontal_start}")
     v2e = connectivities[dims.V2EDim]
@@ -43,7 +43,7 @@ class TestMoMathDivrotRotVertexRiDsl(StencilTest):
         connectivities: dict[gtx.Dimension, np.ndarray],
         vec_e: np.ndarray,
         geofac_rot: np.ndarray,
-        horizontal_start: int,
+        horizontal_start: int = 0,
         **kwargs: Any,
     ) -> dict:
         rot_vec = mo_math_divrot_rot_vertex_ri_dsl_numpy(connectivities, vec_e, geofac_rot, horizontal_start)
