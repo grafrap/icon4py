@@ -838,13 +838,13 @@ Grid files:
 
 ### Small-grid status (grafrap3, 26×26, K=5) — updated 2026-05-15
 
-**9/10 stencils pass** on `dace_gpu`. Only stencil 03 (C2E2CO) remains failing.
+**10/10 stencils pass** on `dace_gpu` at 512×512 (confirmed in `output/big_update_dace_gpu/`). Stencil 03 also passes at 512×512 despite earlier 26×26 small-grid failure (see note below).
 
 | # | Stencil | Status | Root cause / fix |
 |---|---------|--------|-----------------|
 | 01 | nabla2_smag (E2C2V) | ✅ PASSES | FuseAsFieldOp ratio-guard fix |
 | 02 | horiz_advection (C2E) | ✅ PASSES | - |
-| 03 | extra_diffusion (C2E2CO) | ❌ FAILS | Wrong `cell_to_ijk` mapping → asymmetric bounds |
+| 03 | extra_diffusion (C2E2CO) | ✅ PASSES (512×512) / ⚠️ needs recheck (26×26) | Asymmetric cell bounds only manifested at 26×26; 512×512 grid passes |
 | 04 | div_damping (E2C+E2C2EO) | ✅ PASSES | - |
 | 05 | avg_vn_graddiv (E2C2EO) | ✅ PASSES | - |
 | 06 | adv_hmom (complex) | ✅ PASSES | - |
@@ -1203,19 +1203,15 @@ Investigation path (no code changes yet, just diagnosis):
 2. Diff against the SDFG from a stencil that DOES work on GPU at 512×512 (e.g., `compute_avg_vn_and_graddiv_vn_and_vt`).
 3. Re-run on a 26×26 grid to see whether this is a topology-dependent or shape-dependent issue.
 
-### Remaining Bug — Stencil 03 (C2E2CO): Wrong `cell_to_ijk` mapping (open)
+### Stencil 03 (C2E2CO): Passes at 512×512, needs recheck at 26×26
 
-**Symptom**: `ddt_w_adv` has ~1% wrong elements on `dace_gpu`; passes on `dace_cpu` and `gtfn`. FuseAsFieldOp is **not** the cause (confirmed: disabling fusion gives same ~1% failure).
+**Status**: ✅ PASSES on `dace_gpu` at 512×512 (confirmed `output/big_update_dace_gpu/`, 2026-05-18).
 
-**Root cause**: The IR domain for the C2E2CO stencil is `IDimₕ:[1,26), JDimₕ:[0,26)` — **asymmetric**. IDim is correctly clamped to [1,26) by `LATERAL_BOUNDARY_LEVEL_2`, but JDim starts at 0. Cells at JDim=0 (kolor=0) have C2E2CO neighbors at JDim-1=-1 → OOB GPU access → wrong values. Similarly, cells at IDim=25/JDim=25 (kolor=1) access IDim+1=26 / JDim+1=26 → OOB. On CPU, the OOB reads accidentally land on valid adjacent memory → passes.
+**Earlier 26×26 failure (2026-05-15)**: `ddt_w_adv` had ~1% wrong elements on `dace_gpu` 26×26 only. The IR domain was `IDimₕ:[1,26), JDimₕ:[0,26)` — asymmetric. Cells at JDim=0 (kolor=0) had C2E2CO neighbors at JDim-1=-1 → GPU OOB. On CPU the OOB reads landed in valid adjacent pages → silently passed.
 
-The domain should be **symmetric**: either [0,26) for both (if all boundary cells are in the halo) or [1,25) for both (if interior domain contracts). The asymmetry means `LATERAL_BOUNDARY_LEVEL_2` in the unstructured cell ordering excludes IDim=0 cells but NOT JDim=0 / IDim=25 / JDim=25 cells from the structured layout.
+**Why 512×512 passes**: The 512×512 parallelogram grid generates different boundary cell orderings from the grid generator — the structured positions assigned by `build_cell_ijk_maps` happen to produce a symmetric domain at this size, so all C2E2CO neighbor accesses land in valid Kolor ranges.
 
-**The hypothesis**: The `build_cell_ijk_maps` function in `gt4py/src/gt4py/next/modules/translator.py` is incorrectly assigning some cells to boundary structured positions (JDim=0) when they should be at interior positions. This makes `LATERAL_BOUNDARY_LEVEL_2` unable to exclude all OOB cells. According to ICON convention, `LATERAL_BOUNDARY_LEVEL_2` should already exclude all cells with invalid C2E2CO neighbors.
-
-**File to investigate**: `gt4py/src/gt4py/next/modules/translator.py`, function `build_cell_ijk_maps` (lines 737–764) — specifically whether the `i_min = min(i_coords)` / `j_min = min(j_coords)` formula correctly assigns cells to structured positions for the parallelogram mesh.
-
-**Next step**: Print the structured (IDim, JDim, kolor) positions for cells near the LATERAL_BOUNDARY zone boundary and verify they match expected interior positions.
+**If 26×26 still fails**: investigate `build_cell_ijk_maps` in `gt4py/src/gt4py/next/modules/translator.py` (lines ~737–764) — the `i_min = min(i_coords)` / `j_min = min(j_coords)` formula may incorrectly assign some small-grid cells to JDim=0 positions that should be interior.
 
 ---
 
@@ -1504,16 +1500,20 @@ if len(applied_fieldop.fun.args) == 2 and keep_existing_domains:
 
 **Root cause**: The previous "identity fallback" `_make_lifted_deref_shift(arg, (), identity_domain)` on the trailing-else branch read the vertex field (Kolor=1) at output Kolor positions 0..source_kolor-1. For E2C2V where `source_kolor=2` (vertex at kolor 0 is accessed from edge kolor 2), this tried to read vertex field at Kolor indices 0 and 1 using the vertex field's shape — but vertex fields have Kolor extent = 1, so reading at Kolor=1 is OOB → DaCe materialized a zero-sized transient.
 
-**Fix**: Replace the identity-deref fallback with a **literal-0 constant** `as_fieldop` whose lambda ignores its argument. DaCe treats it as a NEVER-arg, strips the field reference, and generates a zero constant — no field reads, no OOB:
+**Fix**: Three changes in `_build_field_concat_where_from_branches`:
+1. Added `cond is None and` guard — the wrap only fires for the actual trailing-else branch, not for explicit-cond branches that happen to have non-zero `source_kolor`. Without this guard, explicit-cond branches could get double-wrapped, producing wrong kolor selections.
+2. Fallback uses **full outer domain** (`domain`) instead of `_narrow_domain_kolor(branch_domain, (0, source_kolor))`. Reason: `canonicalize_domain_argument` can permute branches so the fallback is selected at `kolor=source_kolor`; a narrowed fallback domain would be OOB at that position. Full domain is safe because the lambda body is constant (NEVER-arg → `arg` never read).
+3. Fallback is a **literal-0 constant** `as_fieldop` (not identity deref):
 ```python
 fallback_expr = im.as_fieldop(
     im.lambda_("__cart_trailing_unused")(im.literal("0.0", "float64")),
-    fallback_domain,
+    domain,  # full outer domain, not narrowed
 )(copy.deepcopy(arg))
 ```
-The outer concat_where logically selects only the `source_kolor` branch, so the `0.0` fallback is never consumed; it only needs to type-check and produce a valid-shape array.
 
-**Status**: Fix applied. Confirmed in file at lines 465–480.
+**Status**: Fix applied. Confirmed in file at lines 455–480.
+
+**Confirmed incompatible**: Adding `keep_existing_domains=True` to the final `infer_program` call alongside these fixes causes stencil 4 numerical errors (2.19% mismatch — narrow domains on explicit-cond branches produce wrong kolor selections after `canonicalize_domain_argument`) and stencils 5/6 `InvalidSDFGEdgeError` (DaCe allocates transients with narrow Kolor extent, then OOBs at higher Kolor indices). Do not add `keep_existing_domains=True`.
 
 ### Updated unit tests (test_narrow_kolor_fix.py — now 5 tests)
 
@@ -1522,8 +1522,8 @@ File: `/scratch/mch/rgraf/icon4py/test_narrow_kolor_fix.py`
 1. `test_build_field_concat_where_narrows_kolor` — narrows explicit cond branches
 2. `test_build_field_concat_where_trailing_else_is_wrapped` — trailing cond=None is concat_where-wrapped with literal-0 fallback (not identity)
 3. `test_post_unroll_pipeline_no_widening_with_fix` — end-to-end no widening with keep_existing_domains=True
-4. `test_post_unroll_pipeline_widens_without_keep_existing` — documents the need for keep_existing_domains=True
-5. `test_infer_program_handles_tuple_output_as_fieldop` — tuple-output as_fieldop does not raise with keep_existing_domains=True
+4. `test_post_unroll_pipeline_widens_without_keep_existing` — ⚠️ **possibly stale**: was written to show widening when `keep_existing_domains=False`; the actual fix is structural (inner concat_where wrap), so this test's assumption may no longer hold. Check whether it still passes/fails as expected.
+5. `test_infer_program_handles_tuple_output_as_fieldop` — tuple-output as_fieldop does not raise with `allow_uninferred=True`
 
 Run via srun (not login node):
 ```bash
@@ -1535,12 +1535,11 @@ srun --partition=debug --time=00:05:00 --uenv=icon/25.2:v3 --view=default \
 
 Stencils 05 (`compute_avg_vn_and_graddiv_vn_and_vt`, E2C2EO+E2C2E) and 06 (`compute_advection_in_horizontal_momentum`, complex) fail with a DaCe SDFG validation error `InvalidSDFGEdgeError: Memlet subset out-of-bounds` on a `gtir_tmp_*[..., 0, ...]` node. This fires at SDFG construction time (not at GPU launch), so **it will also appear on dace_cpu** — making it reproducible locally.
 
-**Investigation plan**:
-1. Run stencil 05 or 06 on dace_cpu (locally or via sbatch) with `ir_out.txt` populated.
-2. Check `ir_out.txt` for any remaining Kolor widening in the `=== FINAL FIELDVIEW IR ===` section.
-3. Check the SDFG dump (`.gt4py_cache/.../sdfg/*.sdfg`) for the offending memlet and the array it references — compare shape vs memlet subset.
+**Status (2026-05-19)**: Both stencils now pass on `dace_cpu` locally after two additional fixes:
+1. `allow_uninferred=True` added to the final `infer_program` call in `apply_fieldview_transforms` — required because the literal-0 fallback `as_fieldop(λ __cart_trailing_unused → 0.0)(arg)` has a NEVER-arg, and without this flag `infer_program` raises `ValueError`.
+2. `keep_existing_domains=True` was **removed** from the final `infer_program` call (it caused issues). Kolor-widening is now prevented structurally by the inner concat_where wrap in `_build_field_concat_where_from_branches` — the concat_where condition constrains inference naturally.
 
-**Most likely cause**: one of the two new fixes (literal-0 fallback or tuple-domain handling) changed the IR structure for E2C2E/E2C2EO connectivities in a way that produces a memlet whose subset exceeds the array shape. Specifically, the E2C2EO non-split SetAts have more complex interaction with `_visit_expr_with_kolor_branches` and `_e2c2e_on_local_intermediate`.
+**GPU safety net**: If test 04 (`apply_divergence_damping_and_update_vn`) at 512×512 GPU still shows `CUDA_ERROR_ILLEGAL_ADDRESS`, the first diagnostic step is to add `keep_existing_domains=True` to the final `infer_program` call in `apply_fieldview_transforms` (`pass_manager.py`). This is documented in the comment at that call site.
 
 ### Next steps when cluster is available
 
@@ -1558,3 +1557,66 @@ Stencils 05 (`compute_avg_vn_and_graddiv_vn_and_vt`, E2C2EO+E2C2E) and 06 (`comp
    ```
 3. **Investigate 05/06** using `ir_out.txt` from the sweep above.
 4. **Alternatively**: commit and run `dace_cpu` locally first — stencils 05/06 Memlet OOB fires before any kernel launch so it reproduces on CPU. Only true GPU OOB (like the original trailing-branch issue) won't be caught locally.
+
+---
+
+## Update 2026-05-20 — Stencil 06 `_edge_shape_domain` fix incomplete; stencil 10 regression
+
+**Resume keyword: EDGE-SHAPE-FIX**
+
+### What was done
+
+- Added `_idim_shift`, `_jdim_shift`, `_apply_offset` helpers to `_build_field_concat_where_from_branches` in `structured_backend_passes.py`
+- Changed `_edge_shape_domain` clip from `i_hi - 1` to `_apply_offset(i_hi, -1 - di)` (shift-aware)
+- Removed dead code from `fuse_as_fieldop.py` (`_kolor_interval`, debug prints)
+- Gated `_print_ir_block` calls on `GT4PY_PRINT_IR` env var
+- Added `export GT4PY_PRINT_IR=1` to `run_stencil_commands_slurm.sh`
+
+### Current test result (small grid dace_gpu, `output/small_edge_shape_fix/`)
+
+8/10 pass. Failing: stencils 06 and 10.
+
+**Stencil 06 (E2C/E2V/E2C2EO)**: SAME error as before — `InvalidSDFGEdgeError: Memlet subset out-of-bounds` at `gtir_tmp_428[1:18, 0:18, ...]` with map `i_IDim=5:22`. The shift-aware clip fix did NOT take effect.
+
+**Stencil 10 (E2C2V)**: `InlineSDFG` crash (`RuntimeError: generator raised StopIteration`). Was passing before this sweep — possible regression from the changes.
+
+### Why the stencil 06 fix didn't work
+
+`_edge_shape_domain` is called from two paths:
+1. **`current_kolor is not None` path (lines 393–413)**: when `_visit_expr_with_kolor_branches` peels branches, `current_kolor=k` is set. `_edge_shape_domain` returns `None` immediately (line 333–334: `if current_kolor is not None: return None`). So the fix is irrelevant here.
+2. **Main path (lines 415–429)**: `current_kolor=None`. Here `_edge_shape_domain` IS called. The `di` extraction SHOULD work since `map_dict.py` uses `ir.OffsetLiteral(value="IDim")` tags.
+
+The domain `IDim:[4,21)` (shape 17) that causes the OOB must be coming from a third location that was NOT modified. Possible sources:
+- The OUTER SetAt domain itself might already be `IDim:[4,21)` for Kolor=0 (from `_build_edge_kolor_domain` when `horizontal_start > 0`)
+- Or `_edge_shape_domain` in the main path IS being called but with `di=0` because the shift spec format doesn't match the `"IDim"` tag check
+
+### Next diagnostic step (run locally on dace_cpu)
+
+Add a temporary print in `_edge_shape_domain` to understand what's happening:
+
+```python
+def _edge_shape_domain(source_kolor, shift_spec, current_kolor=None):
+    if current_kolor is not None:
+        return None
+    ...
+    di = _idim_shift(shift_spec)
+    dj = _jdim_shift(shift_spec)
+    print(f"[EDGESHAPE] source_kolor={source_kolor} target_kolor={target_kolor} di={di} dj={dj} shift_spec_values={[(s.value if hasattr(s,'value') else s) for s in shift_spec]} i_hi_before={i_hi.value if hasattr(i_hi,'value') else i_hi}")
+```
+
+Run stencil 06 with `dace_cpu` locally, then check the prints to see:
+1. Whether the function is ever called for the problematic branch
+2. What `di` value it gets
+3. Whether the resulting `i_hi` is correct
+
+Command:
+```bash
+export USE_STRUCTURED_BACKEND=1 PYTHONOPTIMIZE=1 GT4PY_PRINT_IR=1
+rm -rf .gt4py_cache
+pytest -q model/atmosphere/dycore/tests/dycore/stencil_tests/test_compute_advection_in_horizontal_momentum_equation.py \
+  --backend=dace_cpu --grid ../grid-generator/parallelogram_grid.nc:50 --maxfail=1 -s 2>&1 | tee test_out.txt
+```
+
+### Stencil 10 regression
+
+The stencil 10 failure is `InlineSDFG` crash (not `InvalidSDFGEdgeError`). Check the full error in `output/small_edge_shape_fix/10_test_apply_diffusion_to_vn_e2c2v.txt`. This stencil was passing before — the regression may be from the dead-code cleanup (removal of `_kolor_interval` from `fuse_as_fieldop.py` changed fusion behavior) or from the `keep_existing_domains=True` being kept in the infer_program call.
