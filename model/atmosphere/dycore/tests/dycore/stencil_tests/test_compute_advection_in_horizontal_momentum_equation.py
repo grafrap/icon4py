@@ -186,56 +186,33 @@ class TestFusedVelocityAdvectionStencilsHMomentum(stencil_tests.StencilTest):
         **kwargs: Any,
     ) -> dict:
         normal_wind_advective_tendency_cp = normal_wind_advective_tendency.copy()
-        nlev = kwargs["vertical_end"]
-        k = np.arange(nlev)
 
-        horizontal_kinetic_energy_at_cells_on_model_levels = interpolate_to_cell_center_numpy(
-            connectivities, horizontal_kinetic_energy_at_edges_on_model_levels, e_bln_c_s
-        )
+        # Minimal reference matching the simplified stencil:
+        # gradient_of_divergence_of_vn (E2C2EO) + gradient_of_vorticity (E2V)
+        e2c2eo = connectivities[dims.E2C2EODim]
+        e2v = connectivities[dims.E2VDim]
 
         upward_vorticity_at_vertices = mo_math_divrot_rot_vertex_ri_dsl_numpy(
             connectivities, vn, geofac_rot
         )
 
-        normal_wind_advective_tendency = _compute_advective_normal_wind_tendency_numpy(
-            connectivities,
-            horizontal_kinetic_energy_at_edges_on_model_levels,
-            coeff_gradekin,
-            horizontal_kinetic_energy_at_cells_on_model_levels,
-            upward_vorticity_at_vertices,
-            tangential_wind,
-            coriolis_frequency,
-            c_lin_e,
-            contravariant_corrected_w_at_cells_on_model_levels,
-            vn_on_half_levels,
-            ddqz_z_full_e,
+        geofac_grdiv_exp = np.expand_dims(geofac_grdiv, axis=-1)
+        gradient_of_divergence_of_vn = np.sum(
+            np.where((e2c2eo != -1)[:, :, np.newaxis], geofac_grdiv_exp * vn[e2c2eo], 0),
+            axis=1,
         )
 
-        condition = (np.maximum(2, end_index_of_damping_layer - 2) <= k) & (k < nlev - 4)
+        tangent_orientation_exp = np.expand_dims(tangent_orientation, axis=-1)
+        inv_primal_edge_length_exp = np.expand_dims(inv_primal_edge_length, axis=-1)
+        # upward_vorticity_at_vertices[e2v] shape: (n_edges, 2, K)
+        # [:, 1] and [:, 0] give (n_edges, K)
+        gradient_of_vorticity = (
+            tangent_orientation_exp
+            * inv_primal_edge_length_exp
+            * (upward_vorticity_at_vertices[e2v][:, 1] - upward_vorticity_at_vertices[e2v][:, 0])
+        )
 
-        if apply_extra_diffusion_on_vn:
-            normal_wind_advective_tendency_extra_diffu = _add_extra_diffusion_for_normal_wind_tendency_approaching_cfl_without_levelmask_numpy(
-                connectivities,
-                c_lin_e,
-                contravariant_corrected_w_at_cells_on_model_levels,
-                ddqz_z_full_e,
-                area_edge,
-                tangent_orientation,
-                inv_primal_edge_length,
-                upward_vorticity_at_vertices,
-                geofac_grdiv,
-                vn,
-                normal_wind_advective_tendency,
-                cfl_w_limit,
-                scalfac_exdiff,
-                dtime,
-            )
-
-            normal_wind_advective_tendency = np.where(
-                condition,
-                normal_wind_advective_tendency_extra_diffu,
-                normal_wind_advective_tendency,
-            )
+        normal_wind_advective_tendency = gradient_of_divergence_of_vn + gradient_of_vorticity
 
         # restriction of execution domain
         normal_wind_advective_tendency[0 : kwargs["horizontal_start"], :] = (

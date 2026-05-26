@@ -4,7 +4,7 @@
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=20
 #SBATCH --gres=gpu:1
-#SBATCH --partition=debug
+#SBATCH --partition=short
 #SBATCH --time=00:30:00
 #SBATCH --output=slurm/slurm_%j.out
 #SBATCH --error=slurm/slurm_%j.err
@@ -63,6 +63,7 @@ export CUDA_LAUNCH_BLOCKING=1
 export USE_STRUCTURED_BACKEND=1
 export STRUCTURED_DEBUG_SHAPES=1
 export OMP_NUM_THREADS=1
+export GT4PY_PRINT_IR=1
 
 # help cmake find the right compiler
 export CC=gcc

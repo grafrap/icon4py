@@ -840,18 +840,20 @@ Grid files:
 
 **10/10 stencils pass** on `dace_gpu` at 512×512 (confirmed in `output/big_update_dace_gpu/`). Stencil 03 also passes at 512×512 despite earlier 26×26 small-grid failure (see note below).
 
+**Current state (2026-05-22)**: Stencils 06 and 10 still fail with `Kolor:0:0` dimensionality mismatch (job 4349646 confirmed both still failing). Root cause is fully understood (see Update 2026-05-21 below); fix is in progress via IR-level unit tests. Do NOT claim these are fixed until cluster sweep confirms.
+
 | # | Stencil | Status | Root cause / fix |
 |---|---------|--------|-----------------|
-| 01 | nabla2_smag (E2C2V) | ✅ PASSES | FuseAsFieldOp ratio-guard fix |
+| 01 | nabla2_smag (E2C2V) | ✅ PASSES | FuseAsFieldOp ratio-guard fix + `_make_symbolic_domain_tuple` in `infer_domain.py` |
 | 02 | horiz_advection (C2E) | ✅ PASSES | - |
 | 03 | extra_diffusion (C2E2CO) | ✅ PASSES (512×512) / ⚠️ needs recheck (26×26) | Asymmetric cell bounds only manifested at 26×26; 512×512 grid passes |
-| 04 | div_damping (E2C+E2C2EO) | ✅ PASSES | - |
-| 05 | avg_vn_graddiv (E2C2EO) | ✅ PASSES | - |
-| 06 | adv_hmom (complex) | ✅ PASSES | - |
+| 04 | div_damping (E2C+E2C2EO) | ✅ PASSES | trailing-else concat_where wrap + `keep_existing_domains=True` |
+| 05 | avg_vn_graddiv (E2C2EO) | ✅ PASSES | `allow_uninferred=True` for literal-0 fallback |
+| 06 | adv_hmom (complex) | ❌ FAILS | Kolor:0:0 from empty `annex.domain` / empty `fun.args[1]` — fix in progress |
 | 07 | interp_cell (C2E) | ✅ PASSES | - |
 | 08 | cells2verts (V2C) | ✅ PASSES | - |
 | 09 | rot_vertex (V2E) | ✅ PASSES | Test `horizontal_start` fix |
-| 10 | diffusion_vn (E2C2V) | ✅ PASSES | - |
+| 10 | diffusion_vn (E2C2V) | ❌ FAILS | Kolor:0:0 from empty `annex.domain` / empty `fun.args[1]` — fix in progress |
 
 ---
 
@@ -1617,6 +1619,106 @@ pytest -q model/atmosphere/dycore/tests/dycore/stencil_tests/test_compute_advect
   --backend=dace_cpu --grid ../grid-generator/parallelogram_grid.nc:50 --maxfail=1 -s 2>&1 | tee test_out.txt
 ```
 
-### Stencil 10 regression
+### Stencil 10 root cause (confirmed, not a regression)
 
-The stencil 10 failure is `InlineSDFG` crash (not `InvalidSDFGEdgeError`). Check the full error in `output/small_edge_shape_fix/10_test_apply_diffusion_to_vn_e2c2v.txt`. This stencil was passing before — the regression may be from the dead-code cleanup (removal of `_kolor_interval` from `fuse_as_fieldop.py` changed fusion behavior) or from the `keep_existing_domains=True` being kept in the infer_program call.
+The `InlineSDFG: generator raised StopIteration` crash was **pre-existing** in commit `68ddaece6` — confirmed by running the test against that commit and seeing the identical crash. It is NOT introduced by our changes.
+
+**Root cause** (earlier hypothesis, now superseded — see Update 2026-05-21 below): `keep_existing_domains=True` in `infer_program` stops domain propagation at `as_fieldop` boundaries. Nodes inside `as_fieldop` lambda bodies (specifically the `concat_where` nodes created by `canonicalize_domain_argument`) don't get `annex.domain` set. `prune_empty_concat_where` then cannot prune the empty branches. DaCe materializes the true-branch (`Kolor:[1,inf) ∩ Kolor:[0,1) = Kolor:[1,1)` = zero-sized) as transient with Kolor `0:0`. **FIXED in Update 2026-05-21** (see below).
+
+### Stencil 06 IDim OOB — superseded
+
+Earlier investigation suspected `_edge_shape_domain` IDim clipping. **Real root cause confirmed as the same `annex.domain` bug (see Update 2026-05-21)**. The `_edge_shape_domain` clips were already correctly removed; the remaining failure was the `annex.domain` overwrite.
+
+---
+
+## Update 2026-05-21 — Stencils 06 and 10: `annex.domain` overwrite fix (FIXED)
+
+### Root cause (confirmed via `GT4PY_TRACE_INFER_DOMAIN_KOLOR=1` trace)
+
+Both stencils 06 (`compute_advection_in_horizontal_momentum`) and 10 (`apply_diffusion_to_vn`) failed with zero-sized Kolor transients (`Kolor:[0:0]` or `Kolor:[1:1]`). The trace showed identical pattern for both:
+
+```
+[INFER_LET_KOLOR] depth=N param=__cwcda_field_b kolor=Kolor:[1,1) EMPTY
+[INFER_AS_FIELDOP_KOLOR] target_kolor_before=Kolor:[1,1) has_explicit_domain=True keep_existing=True
+```
+
+**Call chain**:
+1. `_build_edge_validity_masked_expr` wraps the stencil in `concat_where(AND(Kolor:[k,k+1), IDim, JDim), expr, rest)`.
+2. `canonicalize_domain_argument` let-lifts the AND condition → `let __cwcda_field_b = as_fieldop(stencil, Kolor:[0,3))(field) in concat_where(OR(Kolor:(-inf,k), Kolor:[k+1,inf)), __cwcda_field_b, ...)`
+3. `infer_program` processes the outer let at context `Kolor:[0,k+1)` (e.g. kolor-0 branch → `Kolor:[0,1)`). The concat_where body assigns `accessed_domain[__cwcda_field_b] = Kolor:[1,1)` (empty intersection of `Kolor:[1,inf)` with outer `Kolor:[0,1)`).
+4. `_infer_as_fieldop` is called with `target_domain = Kolor:[1,1)` on the `as_fieldop` with `has_explicit_domain=True`. `keep_existing_domains=True` correctly **replaces `target_domain` with `Kolor:[0,3)`** (the kept explicit domain). 
+5. **BUG**: `_infer_as_fieldop` creates a fresh `transformed_call` node with no `annex.domain`. The outer wrapper `infer_expr` (line 712) checks `not hasattr(expr.annex, "domain")` → True → **sets `annex.domain = Kolor:[1,1)`** (the caller's empty domain, overwriting the intended `Kolor:[0,3)`).
+6. DaCe reads `annex.domain` to size the copy-destination transient → Kolor `[1:1]` → size 0 → `InvalidSDFGEdgeError: Dimensionality mismatch` or `InlineSDFG: generator raised StopIteration`.
+
+### Fix
+
+**File**: `../gt4py/src/gt4py/next/iterator/transforms/infer_domain.py`, inside `_infer_as_fieldop`, after `transformed_call = im.as_fieldop(stencil, target_domain_expr)(*transformed_inputs)`:
+
+```python
+# When keep_existing_domains kept an explicit domain, pre-populate annex.domain
+# on the new node with that kept domain. Without this, infer_expr (line ~712)
+# overwrites annex.domain with the caller's target_domain (Kolor:[1,1) empty).
+# DaCe reads annex.domain to size the copy-destination transient → zero-sized.
+if keep_existing_domains and len(applied_fieldop.fun.args) == 2:
+    if isinstance(target_domain, domain_utils.SymbolicDomain):
+        transformed_call.annex.domain = target_domain
+```
+
+This pre-sets `annex.domain` to the KEPT explicit domain on the fresh node, so `infer_expr` line 712 sees it already set and skips overwriting.
+
+### Diagnostic tools added (2026-05-21)
+
+**New env vars**:
+- `GT4PY_TRACE_INFER_DOMAIN_KOLOR=1` — prints Kolor-specific domain info for every let param and as_fieldop in `infer_domain.py` (targeted, much less verbose than `GT4PY_TRACE_INFER_DOMAIN`)
+- `GT4PY_PRINT_IR_FILE=ir_out_06.txt` — controls the IR dump filename (now configurable; default `ir_out.txt`)
+- `GT4PY_PRINT_IR=1` — gates the IR dump (now env-var controlled; previously hardcoded `True` in `apply_fieldview_transforms`)
+
+**New section in IR dumps**: `=== FIELDVIEW IR AFTER CANONICALIZE DOMAIN ARG ===` and `=== FIELDVIEW IR AFTER INFER DOMAIN ===` added between existing sections to track domain changes at each step.
+
+**Pass pipeline overview**: `/scratch/mch/rgraf/icon4py/pass_pipeline_overview.md` — complete annotated list of all passes in `apply_fieldview_transforms` in execution order, with the Kolor:0:0 bug root-cause trace.
+
+**Trace command files**:
+- `commands_stencils_kolor_trace.txt` — runs only stencils 06 and 10 with `GT4PY_TRACE_INFER_DOMAIN_KOLOR=1` and separate IR files (`ir_out_06.txt`, `ir_out_10.txt`)
+
+### Unit tests updated (2026-05-21)
+
+`test_narrow_kolor_fix.py` now has **7 tests** (was 6):
+
+| Test | Status | What it checks |
+|---|---|---|
+| `test_build_field_concat_where_uses_full_outer_domain` | ✅ | All branches use `Kolor:[0,3)` (no narrowing in current code) |
+| `test_build_field_concat_where_trailing_else_uses_full_domain` | ✅ | Trailing else also uses full outer domain |
+| `test_post_unroll_pipeline_no_widening_with_fix` | ✅ | Full pipeline: no widened Kolor ranges after inference |
+| `test_post_unroll_pipeline_widens_without_keep_existing` | ✅ | Without `keep_existing_domains`, widening occurs (shows flag is needed) |
+| `test_infer_program_handles_tuple_output_as_fieldop` | ✅ | Tuple-output `as_fieldop` (stencil 01 fix) doesn't raise |
+| `test_edge_shape_domain_no_clip_on_idim` | ✅ | No IDim clip in `_edge_shape_domain` |
+| `test_infer_as_fieldop_keeps_annex_domain_with_keep_existing` | ✅ | **NEW**: `annex.domain` on returned node is the kept explicit domain, NOT the empty caller domain |
+
+Run:
+```bash
+srun --partition=debug --time=00:05:00 --uenv=icon/25.2:v3 --view=default \
+  bash -c '.venv/bin/python test_narrow_kolor_fix.py'
+```
+
+### Verification
+
+Stencil sweep in `output/annex_domain_fix/` (job 4349646, 26×26 small grid, dace_gpu). Expected: 5/5 pass (stencils 01, 04, 05, 06, 10).
+
+### Key implementation detail: `_build_field_concat_where_from_branches` does NOT narrow domains
+
+The current codebase does NOT narrow branch `as_fieldop` domains to `Kolor:[k,k+1)`. All branches use the full outer domain (e.g. `Kolor:[0,3)`). The fix operates entirely in `infer_domain.py`. This is a simpler and more robust approach than domain narrowing, which previously caused additional issues (zero-sized vertex-field transients, CPU `+inf` mismatches, etc.).
+
+### Next steps after cluster confirmation
+
+If job 4349646 shows 5/5 pass:
+1. Run the full 10-stencil small-grid sweep to confirm no regressions:
+   ```bash
+   rm -rf /scratch/mch/rgraf/icon4py/.gt4py_cache
+   sbatch scripts/run_stencil_commands_slurm.sh \
+     --command-file commands_stencils_small.txt \
+     --output-dir output/small_annex_domain_fix/
+   ```
+2. If all 10 pass at small grid, run at 512×512 GPU.
+3. Update CLAUDE.md status table to remove "pending" labels.
+
+**Resume keyword: ANNEX-DOMAIN-FIX**
