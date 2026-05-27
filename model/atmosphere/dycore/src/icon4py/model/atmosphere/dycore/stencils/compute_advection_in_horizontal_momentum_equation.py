@@ -57,14 +57,32 @@ def _compute_advective_normal_wind_tendency(
         wpfloat,
     )
 
-    # Minimal failing case: just the E2V vertex-field access in a per-kolor-split context.
-    # This reproduces the DaCe OOB: Kolor:[2,3) transient accessed at absolute Kolor=2
-    # in a shape-1 array. All other computation stripped out.
-    return astype(
-        upward_vorticity_at_vertices_on_model_levels(E2V[0])
-        + upward_vorticity_at_vertices_on_model_levels(E2V[1]),
-        vpfloat,
+    horizontal_advection = (
+        horizontal_kinetic_energy_at_edges_on_model_levels
+        * (coeff_gradekin[E2CDim(0)] - coeff_gradekin[E2CDim(1)])
+        + coeff_gradekin[E2CDim(1)] * horizontal_kinetic_energy_at_cells_on_model_levels(E2C[1])
+        - coeff_gradekin[E2CDim(0)] * horizontal_kinetic_energy_at_cells_on_model_levels(E2C[0])
     )
+
+    vertical_advection = (
+        neighbor_sum(
+            c_lin_e * contravariant_corrected_w_at_cells_on_model_levels_wp(E2C), axis=E2CDim
+        )
+        * astype((vn_on_half_levels - vn_on_half_levels(Koff[1])), wpfloat)
+        / ddqz_z_full_e_wp
+    )
+
+    coriolis_term = tangential_wind_wp * (
+        coriolis_frequency
+        + astype(
+            vpfloat("0.5")
+            * neighbor_sum(upward_vorticity_at_vertices_on_model_levels(E2V), axis=E2VDim),
+            wpfloat,
+        )
+    )
+    normal_wind_advective_tendency_wp = -(horizontal_advection + vertical_advection + coriolis_term)
+
+    return astype(normal_wind_advective_tendency_wp, vpfloat)
 
 
 @gtx.field_operator
@@ -183,17 +201,41 @@ def _compute_advection_in_horizontal_momentum(
         upward_vorticity_at_vertices_on_model_levels, vpfloat
     )
 
-    # Minimal failing case: E2C2EO + E2V in the same SetAt.
-    # E2C2EO prevents per-kolor split → non-split path.
-    # E2V trailing-else branch creates Kolor:[2,3) transient; DaCe accesses it at
-    # absolute Kolor=2 in a shape-1 array → InvalidSDFGEdgeError: Memlet subset out-of-bounds.
-    gradient_of_divergence_of_vn = neighbor_sum(geofac_grdiv * vn(E2C2EO), axis=E2C2EODim)
-    gradient_of_vorticity = tangent_orientation * inv_primal_edge_length * astype(
-        upward_vorticity_at_vertices_on_model_levels(E2V[1])
-        - upward_vorticity_at_vertices_on_model_levels(E2V[0]),
-        wpfloat,
+    normal_wind_advective_tendency = _compute_advective_normal_wind_tendency(
+        horizontal_kinetic_energy_at_edges_on_model_levels,
+        upward_vorticity_at_vertices_on_model_levels,
+        tangential_wind,
+        vn_on_half_levels,
+        contravariant_corrected_w_at_cells_on_model_levels,
+        coriolis_frequency,
+        e_bln_c_s,
+        c_lin_e,
+        coeff_gradekin,
+        ddqz_z_full_e,
     )
-    return astype(gradient_of_divergence_of_vn + gradient_of_vorticity, vpfloat)
+
+    if apply_extra_diffusion_on_vn:
+        normal_wind_advective_tendency = concat_where(
+            ((maximum(2, end_index_of_damping_layer - 2)) <= dims.KDim) & (dims.KDim < (nlev - 4)),
+            _add_extra_diffusion_for_normal_wind_tendency_approaching_cfl_without_levelmask(
+                c_lin_e,
+                contravariant_corrected_w_at_cells_on_model_levels,
+                ddqz_z_full_e,
+                area_edge,
+                tangent_orientation,
+                inv_primal_edge_length,
+                upward_vorticity_at_vertices_on_model_levels,
+                geofac_grdiv,
+                vn,
+                normal_wind_advective_tendency,
+                cfl_w_limit,
+                scalfac_exdiff,
+                dtime,
+            ),
+            normal_wind_advective_tendency,
+        )
+
+    return normal_wind_advective_tendency
 
 
 @gtx.program(grid_type=gtx.GridType.UNSTRUCTURED)
