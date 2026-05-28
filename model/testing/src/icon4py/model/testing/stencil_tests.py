@@ -11,6 +11,7 @@ from __future__ import annotations
 import contextlib
 import dataclasses
 import os
+import time
 from collections.abc import Callable, Generator, Mapping, Sequence
 from typing import Any, ClassVar, Final
 
@@ -176,6 +177,22 @@ def test_and_benchmark(
         self._verify_stencil_test(
             input_data=prepared_input_data, reference_outputs=reference_outputs
         )
+
+    # Emit [timing] lines for the unstructured path. The structured path already emits
+    # these from cartesian_interceptor.py on every call (including the verification call
+    # above). For unstructured we add an explicit loop so extract_timing_stats.py can
+    # compute median exec times the same way for both backends.
+    if os.environ.get("USE_STRUCTURED_BACKEND", "0") != "1":
+        program_name = getattr(self.PROGRAM, "__name__", str(self.PROGRAM))
+        n_runs = int(os.getenv("ICON4PY_TIMING_RUNS", "5"))
+        # First call may still include JIT compilation; emit it anyway so
+        # extract_timing_stats.py can skip it (consistent with structured path).
+        for _ in range(n_runs):
+            _t0 = time.perf_counter()
+            _configured_program(**prepared_input_data, offset_provider=grid.connectivities)
+            _t1 = time.perf_counter()
+            _elapsed = _t1 - _t0
+            print(f"[timing] {program_name} exec={_elapsed:.8f}s total={_elapsed:.8f}s")
 
     if not skip_stenciltest_benchmark:
         warmup_rounds = int(os.getenv("ICON4PY_STENCIL_TEST_WARMUP_ROUNDS", "1"))

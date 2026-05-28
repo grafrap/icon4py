@@ -278,6 +278,83 @@ File: `model/atmosphere/dycore/tests/dycore/stencil_tests/test_mo_math_divrot_ro
 
 ---
 
+### Bug 06 — Stencil 04: `CUDA_ERROR_ILLEGAL_ADDRESS` (big grid) from empty/inverted ranges in `domain_union` (FIXED, 2026-05-28)
+
+#### Symptom
+
+Stencil 04 (`apply_divergence_damping_and_update_vn`) passed the small grid (26×26, sanitize) but failed with `CUDA_ERROR_ILLEGAL_ADDRESS` on the big grid (512×512, K=50) even after Bug 05's fix. Sanitize on the small grid passed (no OOB errors), ruling out obvious wrong-shift bugs.
+
+#### Root cause
+
+`domain_union` in `domain_utils.py` did not handle "empty" ranges (start ≥ stop) when computing the per-dimension union. These arise naturally when `_infer_concat_where` intersects a domain with a condition complement that doesn't overlap:
+
+1. `canonicalize_domain_argument` (called at `pass_manager.py:511`, **before** `infer_program`) converts every finite concat_where condition like `Kolor:[0,1)` to canonical semi-infinite form:
+   ```
+   concat_where(Kolor:[0,1), expr, rest)
+   →  concat_where(Kolor:[-inf,0), rest, concat_where(Kolor:[1,+inf), rest, expr))
+   ```
+   The `rest` expression appears as the TRUE branch of **both** `[-inf,0)` and `[1,+inf)`.
+
+2. `_infer_concat_where` processes `concat_where(Kolor:[-inf,0), rest, ...)` with outer domain `Kolor:[0,3)`:
+   - TRUE branch: `Kolor:[-inf,0) ∩ Kolor:[0,3)` = `Kolor:[max(-inf,0), min(0,3))` = **`Kolor:[0,0)`** — zero-width empty range.
+   - Similarly, `Kolor:[2,3) ∩ Kolor:[-inf,1)` = `Kolor:[2,1)` — **inverted range** (start > stop), also semantically empty.
+
+3. **Old `_range_union` / `domain_union`** included these degenerate ranges in the union:
+   ```
+   _range_union([0,0), [1,3)) = [min(0,1), max(0,3)) = [0,3)  ← WRONG, should be [1,3)
+   _range_union([2,1), [1,3)) = [min(2,1), max(1,3)) = [1,3)  ← start=1 ok, but [2,1) shouldn't contribute
+   ```
+
+4. This caused the `__cwcda_field_b` / `_cs_0` let-bound stencil to receive a union domain of `Kolor:[0,3)` instead of the correct `Kolor:[1,3)` (for the kolor-1+2 context), and ultimately to get `Kolor:[-2,3)` through cascading widening from E2C shift back-propagation. DaCe allocated GPU temporaries spanning `Kolor:[-2,3)` (5 kolor slices) while the actual `dwdz` field had only 2 cell kolors → **GPU OOB** on big grid (small grid had enough memory slack to absorb it silently).
+
+#### Fix
+
+**File**: `../gt4py/src/gt4py/next/iterator/ir_utils/domain_utils.py`
+
+- Added `_range_is_empty(range_) -> bool`: returns True when `int(start.value) >= int(stop.value)` after constant folding. Handles both `OffsetLiteral` (int `.value`) and `Literal` (str `.value`) node types, which can arise from the same arithmetic constant-folded differently. `InfinityLiteral` nodes lack a numeric `.value` and are safely treated as non-empty.
+
+- Rewrote `domain_union` (was `functools.partial(_reduce_domains, ...)`) as a proper function that filters out empty/inverted per-dimension ranges before computing the union:
+  ```python
+  def domain_union(*domains: SymbolicDomain) -> SymbolicDomain:
+      ...
+      for dim in dims:
+          all_ranges = [domain.ranges[dim] for domain in promoted_domains]
+          non_empty = [r for r in all_ranges if not _range_is_empty(r)]
+          if non_empty:
+              new_domain_ranges[dim] = _range_union(*non_empty)
+          else:
+              new_domain_ranges[dim] = all_ranges[0]  # all empty, keep first
+  ```
+
+Two iteration of the fix were needed:
+1. **First**: checked only `start == stop` (zero-width empty ranges) — removed `Kolor:[0,0)` contributions. IR still showed inverted ranges `Kolor:[1,0)` and `Kolor:[2,0)` from disjoint intersections.
+2. **Second** (extended to `start >= stop`): also filters inverted ranges like `Kolor:[2,1)` from `Kolor:[2,3) ∩ Kolor:[-inf,1)`. This cleaned up all remaining degenerate domains in the IR.
+
+#### Why small grid passed silently
+
+The small grid (26×26, K=5) has enough GPU memory slack after each allocated buffer that out-of-bounds reads at negative kolor indices landed in valid but uninitialized memory, producing wrong values that happened to be tolerated (close to zero or overwritten). The big grid (512×512, K=50) has tightly-packed large allocations, so the OOB reads crossed allocation boundaries → kernel abort.
+
+#### Diagnostic unit test
+
+`/scratch/mch/rgraf/icon4py/test_kolor_domain_inference.py` — three tests:
+1. `test_domain_union_skips_empty_ranges`: directly tests `domain_union([0,0), [1,3)) = [1,3)` and `domain_union([2,1), [1,3)) = [1,3)`.
+2. `test_canonical_three_branch_gives_correct_domains`: end-to-end `infer_expr` on canonical semi-infinite concat_where; `field_k12` domain = `[1,3)` not `[0,3)`.
+3. `test_cs0_canonical_cond_empty_range_union`: CSE let-binding structure; `_cs_0` let arg kolor range = `[1,3)` not `[0,3)`.
+
+#### Note on dead code in `_infer_concat_where`
+
+Fix D (the `and_()` case in `_infer_concat_where`, added for Bug 05) is **dead code** in the production pipeline: `canonicalize_domain_argument` converts all `and_()` conditions to semi-infinite before `infer_program` runs. Fix E (pre-fusion `infer_program`) also does not help because it uses the same broken `domain_union`. Both remain in the code and are harmless.
+
+#### Validation
+
+| Grid | Test | Result |
+|---|---|---|
+| 26×26 | sanitize (`compute-sanitizer --tool memcheck`) | ✅ 0 errors |
+| 26×26 | small grid | ✅ 1 passed |
+| 512×512 | big grid | ✅ 1 passed |
+
+---
+
 ### Bug 05 — Stencil 04: `_infer_concat_where` crashes on `and_()` + numerical bug from `_EDGE_TO_EDGE_SPLIT_ALLOWLIST` (FIXED, 2026-05-27)
 
 #### Problem 1: `AssertionError` in `_infer_concat_where` when `cond = and_(...)`

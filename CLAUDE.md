@@ -571,7 +571,7 @@ Grid files:
 | 01 | nabla2_smag (E2C2V) | ✅ | ✅ | FuseAsFieldOp ratio-guard + tuple-domain fix |
 | 02 | horiz_advection (C2E) | ✅ | ✅ | — |
 | 03 | extra_diffusion (C2E2CO) | ✅ | ⚠️ recheck | Asymmetric cell bounds at 26×26 only |
-| 04 | div_damping (E2C+E2C2EO) | ✅ | ✅ | Trailing-else concat_where wrap fix |
+| 04 | div_damping (E2C+E2C2EO) | ✅ | ✅ | `domain_union` empty/inverted range fix (Bug 06, 2026-05-28) |
 | 05 | avg_vn_graddiv (E2C2EO) | ✅ | ✅ | allow_uninferred=True for literal-0 fallback |
 | 06 | adv_hmom (complex) | ✅ | ⚠️ fix pending | annex.domain overwrite fix (2026-05-21) |
 | 07 | interp_cell (C2E) | ✅ | ✅ | — |
