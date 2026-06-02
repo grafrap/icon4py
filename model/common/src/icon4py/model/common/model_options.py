@@ -163,6 +163,7 @@ def setup_program(
             remap_sizes=remap_sizes,
             allocator=backend,
             offset_provider=offset_provider,
+            symbolic_domain_sizes={**horizontal_sizes, **vertical_sizes},
         )
         return functools.partial(
             wrapper,

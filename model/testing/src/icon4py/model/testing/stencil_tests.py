@@ -368,6 +368,11 @@ class StencilTest:
                     e2v_conn = grid.connectivities.get("E2V")
                     e2v_array = e2v_conn.asnumpy() if e2v_conn is not None else None
                     index_map, remap_sizes = get_global_grid_mapping(e2v_override=e2v_array)
+                    symbolic_domain_sizes = {
+                        name: input_data[name]
+                        for name in static_variant
+                        if name in input_data
+                    }
                     cls._structured_wrapper = GenericStructuredWrapper(
                         operator=self.PROGRAM,
                         backend_factory=_chosen_factory,
@@ -375,6 +380,7 @@ class StencilTest:
                         remap_sizes=remap_sizes,
                         allocator=model_backends.get_allocator(backend_like),
                         offset_provider=grid.connectivities,
+                        symbolic_domain_sizes=symbolic_domain_sizes,
                     )
                 return device_utils.synchronized_function(
                     cls._structured_wrapper, allocator=model_backends.get_allocator(backend_like)
