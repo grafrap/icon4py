@@ -13,7 +13,7 @@ from statistics import mean, median, stdev
 from typing import Optional
 
 
-def parse_timing_lines(lines: list[str]) -> list[float]:
+def parse_timing_lines(lines: "list[str]") -> "list[float]":
     """
     Extract exec timing values from [timing] lines.
     
@@ -32,7 +32,7 @@ def parse_timing_lines(lines: list[str]) -> list[float]:
     return values
 
 
-def group_timing_blocks(file_content: str) -> list[tuple[str, list[str]]]:
+def group_timing_blocks(file_content: str) -> "list[tuple[str, list[str]]]":
     """
     Group consecutive [timing] lines by their prefix (e.g., stencil name).
     
@@ -77,7 +77,7 @@ def group_timing_blocks(file_content: str) -> list[tuple[str, list[str]]]:
     return blocks
 
 
-def calculate_stats(values: list[float]) -> Optional[dict]:
+def calculate_stats(values: "list[float]") -> Optional[dict]:
     """
     Calculate statistics for a list of values.
     
@@ -106,26 +106,27 @@ def calculate_stats(values: list[float]) -> Optional[dict]:
     }
 
 
-def format_stats(prefix: str, stats: dict) -> tuple[str, str]:
+def format_stats(prefix: str, stats: dict) -> "tuple[str, str]":
     """Format statistics as header and data rows.
-    
+
     Returns (header_row, data_row) tuple.
     """
+    w = 13  # column width: 8 decimals + "0." + sign = 11 chars minimum, 13 gives padding
     header = (
         f"{'TIMING STATISTICS':<56s} "
-        f"{'Min':<12s} {'Max':<12s} {'Mean':<12s} "
-        f"{'StdDev':<12s} {'Median':<12s} {'Iterations':<4s}"
+        f"{'Min':<{w}s} {'Max':<{w}s} {'Mean':<{w}s} "
+        f"{'StdDev':<{w}s} {'Median':<{w}s} {'Iterations':<4s}"
     )
     data = (
         f"{prefix:<56s} "
-        f"{stats['min']:<12.5f} {stats['max']:<12.5f} "
-        f"{stats['mean']:<12.5f} {stats['stddev']:<12.5f} "
-        f"{stats['median']:<12.5f} {stats['count']:<4d}"
+        f"{stats['min']:<{w}.8f} {stats['max']:<{w}.8f} "
+        f"{stats['mean']:<{w}.8f} {stats['stddev']:<{w}.8f} "
+        f"{stats['median']:<{w}.8f} {stats['count']:<4d}"
     )
     return (header, data)
 
 
-def process_file(file_path: Path) -> tuple[list[str], list[str]]:
+def process_file(file_path: Path) -> "tuple[list[str], list[str]]":
     """
     Process a single file and return the formatted statistics lines.
     
@@ -161,10 +162,10 @@ def process_file(file_path: Path) -> tuple[list[str], list[str]]:
     if data_lines:
         with open(file_path, 'a') as f:
             f.write('\n\n')
-            f.write('=' * 120 + '\n')
+            f.write('=' * 130 + '\n')
             for header in headers:
                 f.write(header + '\n')
-            f.write('=' * 120 + '\n')
+            f.write('=' * 130 + '\n')
             for line in data_lines:
                 f.write(line + '\n')
     
@@ -214,10 +215,10 @@ def main():
     print(f"\nWriting results to {results_file}...")
     
     with open(results_file, 'w') as f:
-        f.write('=' * 120 + '\n')
+        f.write('=' * 130 + '\n')
         for header in all_headers:
             f.write(header + '\n')
-        f.write('=' * 120 + '\n')
+        f.write('=' * 130 + '\n')
         for line in all_data:
             f.write(line + '\n')
     
