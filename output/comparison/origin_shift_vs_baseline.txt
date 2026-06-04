@@ -1,0 +1,18 @@
+apply_diffusion_to_vn — Timing Comparison (dace_gpu, K=50)
+Grid sizes: 512=512×512, 516=516×516 unit cells
+
+====================================================================================================================
+Run                            Median         Min         Max      StdDev     N   vs Unstr-512   vs Unstr-516  Notes
+====================================================================================================================
+Unstructured (512×512)        1.3631ms     1.3209ms     1.4158ms     0.0474ms     4         1.000×         1.036×  reference baseline
+Unstructured (516×516)        1.3163ms     1.2585ms     1.3594ms     0.0496ms     4         0.966×         1.000×  apples-to-apples reference
+Structured warp-fix (512)     2.3553ms     1.9689ms     2.5781ms     0.1982ms    42         1.728×         1.789×  no origin shift, domain=508
+Structured shift (512)        2.3040ms     1.8499ms     2.4731ms     0.1678ms    42         1.690×         1.750×  origin shift, domain=508
+Structured shift (516)        1.8364ms     1.7880ms     1.8785ms     0.0193ms    42         1.347×         1.395×  origin shift, domain=512=16×32
+====================================================================================================================
+
+Key takeaways:
+  • Structured shift (516) vs warp-fix baseline:  22.0% faster
+  • Structured shift (516) vs unstructured (516):  1.395× slower  (1.8364 ms vs 1.3163 ms)
+  • Remaining gap to close: 0.5201 ms (39.5%)
+  • StdDev of shift-516 (0.0193 ms) vs unstr-516 (0.0496 ms): comparable stability

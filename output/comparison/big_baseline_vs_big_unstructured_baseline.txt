@@ -1,0 +1,14 @@
+==============================================================================================================
+Stencil                                                  big_baseline big_unstructured_baseline Abs Diff     Ratio (v2/v1)
+==============================================================================================================
+add_extra_diffusion_for_w_con_approaching_cfl            0.00483      0.00096      -0.00387     0.1988      
+add_interpolated_horizontal_advection_of_w               0.00482      0.00059      -0.00423     0.1224      
+apply_diffusion_to_vn                                    0.02508      0.00136      -0.02372     0.0542      
+apply_divergence_damping_and_update_vn                   0.04029      0.00319      -0.03710     0.0792      
+calculate_nabla2_and_smag_coefficients_for_vn            0.01364      0.00172      -0.01192     0.1261      
+compute_advection_in_horizontal_momentum                 0.03652      0.00206      -0.03446     0.0564      
+compute_avg_vn_and_graddiv_vn_and_vt                     0.02793      0.00138      -0.02655     0.0494      
+interpolate_to_cell_center                               0.00418      0.00058      -0.00360     0.1388      
+mo_icon_interpolation_scalar_cells2verts_scalar_ri_dsl   0.00349      0.00044      -0.00305     0.1261      
+mo_math_divrot_rot_vertex_ri_dsl                         0.00347      0.00041      -0.00306     0.1182      
+==============================================================================================================
