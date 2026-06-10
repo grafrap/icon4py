@@ -157,3 +157,5 @@ output/*
 slurm_*
 *.txt
 .cupy_cache/
+.gt_cache*
+slurm/*

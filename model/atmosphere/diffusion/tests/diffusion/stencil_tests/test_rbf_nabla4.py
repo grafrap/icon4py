@@ -121,7 +121,7 @@ class TestRBFNABLA4(StencilTest):
         v_vert_out = data_alloc.zero_field(grid, dims.VertexDim, dims.KDim, dtype=wpfloat)
 
         vertex_domain = h_grid.domain(dims.VertexDim)
-        horizontal_start = grid.start_index(vertex_domain(h_grid.Zone.LATERAL_BOUNDARY_LEVEL_4))
+        horizontal_start = grid.start_index(vertex_domain(h_grid.Zone.LATERAL_BOUNDARY_LEVEL_3))
         horizontal_end = grid.end_index(vertex_domain(h_grid.Zone.LOCAL))
 
         return dict(

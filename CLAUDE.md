@@ -213,6 +213,7 @@ All tested with `USE_STRUCTURED_BACKEND=1 PYTHONOPTIMIZE=1`:
 | `mo_icon_interpolation_scalar_cells2verts_scalar_ri_dsl` | V2C | ✅ passes |
 | `apply_diffusion_to_vn` | E2C2V, `start_2nd_nudge_line_idx_e` threshold | ✅ passes |
 | `compute_advection_in_horizontal_momentum` | E2C, E2V, E2C2EO, C2E, V2E | ✅ passes (per-kolor split + entity-type-aware kolor) |
+| `rbf_nabla4` | V2E + E2C2V, vertex sparse ptr_coeff_1/2[Vertex, V2EDim] | ✅ passes (origin-shift: vertex bounds, full arrays + as_field(origin=)) |
 
 ---
 
@@ -233,6 +234,16 @@ All tested with `USE_STRUCTURED_BACKEND=1 PYTHONOPTIMIZE=1`:
 - Per-kolor I/J bounds derived from `edge_to_ijk[horizontal_start:]` via `_derive_entity_start_bounds_from_mapping`
 - Exact bounds (not symmetric heuristic) for each kolor's valid domain
 - `start_2nd_nudge_line_idx_e` (and other threshold params) similarly handled with per-kolor bounds
+
+### Origin-Shift Optimization (cache-aligned GPU writes)
+- **Goal**: first interior write lands at GPU buffer offset 0 (cache-aligned), avoiding partial cache-line writes at the write-domain boundary.
+- **Approach**: `as_field([IDim, JDim, Kolor, ...], full_packed_array, origin={IDim: shift_i, JDim: shift_j})` — keeps the FULL array, shifts the coordinate origin. DaCe accesses `ptr[i_logical + shift_i]` which equals `ptr[i_original]`. No slicing.
+- **Entity-aware shift**: `_detect_output_entity()` inspects PAST body call `kwargs["out"]` → first output field dim → "Vertex"/"Edge"/"Cell". Then `_compute_horizontal_shift(entity, horizontal_start)` calls `_derive_entity_start_bounds_from_mapping` with the correct mapping (vertex_to_ij for vertex stencils, edge_to_ijk for edge stencils). Cached in `_shift_cache` per horizontal_start value.
+- **Uniform shift**: same `(shift_i, shift_j)` applied to ALL fields (edge, vertex, cell, sparse). Neighbor reads stay in bounds because `ptr[(i_v_logical + di_V2E) + shift_v] = ptr[i_v_original + di_V2E]` — the shift cancels for any topology-valid offset.
+- **Full array unpack**: `unpack_edge_field(struct_np, m, n_edge)` and `unpack_vertex_field_to_unstructured(struct_np, m)` read from original positions — boundary values are preserved since `pack_edge/vertex_field` fills ALL positions (including boundary).
+- **IR domain**: `_mapping_based_axis_bounds` subtracts shift from vertex bounds → IR vertex domain `[0, 21)` with origin shift_i=3 → physical writes to `[3, 24)`. Edge per-kolor bounds subtracted in `_per_kolor_domain` via `sds["horizontal_start_shift_i"]`.
+- **Files modified**: `../gt4py/src/gt4py/next/modules/cartesian_interceptor.py` (new methods `_detect_output_entity`, `_compute_horizontal_shift`, cache `_shift_cache`; updated `_pack_argument` and `_unpack_to_buffer`).
+- **Why compact slicing was wrong for vertex stencils**: `edge_compact = edge_full[shift_i:, ...]` puts edge IDim=shift_i at ptr[0]. But V2E of a vertex at i_v_compact=0 reads edge at i_v_compact + di = -1 → OOB. The origin approach avoids slicing entirely.
 
 ---
 
