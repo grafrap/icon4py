@@ -21,6 +21,37 @@ from icon4py.model.common.utils import data_allocation as data_alloc
 from icon4py.model.testing.stencil_tests import StandardStaticVariants, StencilTest
 
 
+def mo_intp_rbf_rbf_vec_interpol_vertex_numpy(
+    connectivities: dict[gtx.Dimension, np.ndarray],
+    p_e_in: np.ndarray,
+    ptr_coeff_1: np.ndarray,
+    ptr_coeff_2: np.ndarray,
+    horizontal_start: int,
+    horizontal_end: int,
+    **kwargs: Any,
+) -> tuple[np.ndarray, np.ndarray]:
+    v2e = connectivities[dims.V2EDim]
+    ptr_coeff_1 = np.expand_dims(ptr_coeff_1, axis=-1)
+    p_u_out = np.sum(
+        np.where(np.expand_dims(v2e, axis=-1) >= 0, p_e_in[v2e] * ptr_coeff_1, 0.0), axis=1
+    )
+
+    ptr_coeff_2 = np.expand_dims(ptr_coeff_2, axis=-1)
+    p_v_out = np.sum(
+        np.where(np.expand_dims(v2e, axis=-1) >= 0, p_e_in[v2e] * ptr_coeff_2, 0.0), axis=1
+    )
+    p_u_final_out = np.zeros_like(p_u_out)  # Same as initial values of p_u_out
+    p_v_final_out = np.zeros_like(p_v_out)  # Same as initial values of p_v_out
+    p_u_final_out[horizontal_start:horizontal_end, :] = p_u_out[
+        horizontal_start:horizontal_end, :
+    ]
+    p_v_final_out[horizontal_start:horizontal_end, :] = p_v_out[
+        horizontal_start:horizontal_end, :
+    ]
+
+    return p_v_final_out, p_u_final_out
+
+
 @pytest.mark.continuous_benchmarking
 class TestMoIntpRbfRbfVecInterpolVertex(StencilTest):
     PROGRAM = mo_intp_rbf_rbf_vec_interpol_vertex
@@ -42,6 +73,7 @@ class TestMoIntpRbfRbfVecInterpolVertex(StencilTest):
     @staticmethod
     def reference(
         connectivities: dict[gtx.Dimension, np.ndarray],
+        *,
         p_e_in: np.ndarray,
         ptr_coeff_1: np.ndarray,
         ptr_coeff_2: np.ndarray,
@@ -49,26 +81,16 @@ class TestMoIntpRbfRbfVecInterpolVertex(StencilTest):
         horizontal_end: int,
         **kwargs: Any,
     ) -> dict[str, np.ndarray]:
-        v2e = connectivities[dims.V2EDim]
-        ptr_coeff_1 = np.expand_dims(ptr_coeff_1, axis=-1)
-        p_u_out = np.sum(
-            np.where(np.expand_dims(v2e, axis=-1) >= 0, p_e_in[v2e] * ptr_coeff_1, 0.0), axis=1
+        (p_v_out, p_u_out) = mo_intp_rbf_rbf_vec_interpol_vertex_numpy(
+            connectivities,
+            p_e_in,
+            ptr_coeff_1,
+            ptr_coeff_2,
+            horizontal_start,
+            horizontal_end,
         )
 
-        ptr_coeff_2 = np.expand_dims(ptr_coeff_2, axis=-1)
-        p_v_out = np.sum(
-            np.where(np.expand_dims(v2e, axis=-1) >= 0, p_e_in[v2e] * ptr_coeff_2, 0.0), axis=1
-        )
-        p_u_final_out = np.zeros_like(p_u_out)  # Same as initial values of p_u_out
-        p_v_final_out = np.zeros_like(p_v_out)  # Same as initial values of p_v_out
-        p_u_final_out[horizontal_start:horizontal_end, :] = p_u_out[
-            horizontal_start:horizontal_end, :
-        ]
-        p_v_final_out[horizontal_start:horizontal_end, :] = p_v_out[
-            horizontal_start:horizontal_end, :
-        ]
-
-        return dict(p_v_out=p_v_final_out, p_u_out=p_u_final_out)
+        return dict(p_v_out=p_v_out, p_u_out=p_u_out)
 
     @pytest.fixture
     def input_data(self, grid: base.Grid) -> dict:

@@ -1,0 +1,14 @@
+==================================================================================================================================================
+Stencil                                                big_unstructured_baseline              warp_fix_big                  Abs Diff Ratio (v2/v1)
+==================================================================================================================================================
+add_extra_diffusion_for_w_con_approaching_cfl                          0.0009623                 0.0009730                 0.0000107       1.01110
+add_interpolated_horizontal_advection_of_w                             0.0005949                 0.0009836                 0.0003888       1.65350
+apply_diffusion_to_vn                                                  0.0013631                 0.0023553                 0.0009922       1.72793
+apply_divergence_damping_and_update_vn                                 0.0031876                 0.0053058                 0.0021182       1.66452
+calculate_nabla2_and_smag_coefficients_for_vn                          0.0017247                 0.0026509                 0.0009262       1.53700
+compute_advection_in_horizontal_momentum                               0.0020626                 0.0043363                 0.0022738       2.10238
+compute_avg_vn_and_graddiv_vn_and_vt                                   0.0013821                 0.0036696                 0.0022875       2.65507
+interpolate_to_cell_center                                             0.0005820                 0.0006632                 0.0000812       1.13944
+mo_icon_interpolation_scalar_cells2verts_scalar_ri_dsl                 0.0004450                 0.0004959                 0.0000509       1.11444
+mo_math_divrot_rot_vertex_ri_dsl                                       0.0004125                 0.0004781                 0.0000656       1.15892
+==================================================================================================================================================

@@ -1,0 +1,25 @@
+apply_diffusion_to_vn — Full Optimization Comparison (dace_gpu, K=50)
+Opt1=warp_align  Opt2=origin_shift  Opt3=grid_align(N≡4 mod 32)  Opt4=stride_pad
+
+======================================================================================================
+Run                              Median         Min         Max        StdDev        vs Unstr-516  Notes
+======================================================================================================
+Unstructured (512×512)          1.3631ms     1.3209ms     1.4158ms    0.0474ms          1.036×  reference baseline
+Unstructured (516×516)          1.3163ms     1.2585ms     1.3594ms    0.0496ms          1.000×  apples-to-apples reference
+Structured baseline             10.34ms      10.30ms      10.55ms     0.06ms            7.586×  No Opt
+Structured warp-fix (512)       2.3553ms     1.9689ms     2.5781ms    0.1982ms          1.789×  Opt1 only: warp alignment
+Structured shift (512)          2.3040ms     1.8499ms     2.4731ms    0.1678ms          1.750×  Opt1+2: origin shift, domain=508
+Structured shift (516)          1.8364ms     1.7880ms     1.8785ms    0.0193ms          1.395×  Opt1+2+3: origin shift, domain=512
+Structured stride-pad (512)     1.8039ms     1.7356ms     1.8846ms    0.0353ms          1.370×  Opt1+2+4: stride padding, domain=508
+Structured stride-pad (516)     1.6866ms     1.6451ms     1.7532ms    0.0207ms          1.281×  Opt1+2+3+4: all opts, domain=512
+======================================================================================================
+
+Cumulative gains (vs warp-fix baseline 2.355 ms):
+  Structured shift (516)                     +22.0%  (1.8364 ms)
+  Structured stride-pad (512)                +23.4%  (1.8039 ms)
+  Structured stride-pad (516)                +28.4%  (1.6866 ms)
+
+Kernel launches (both structured and unstructured): 14 (6 compute + 8 copy/scatter)
+  - Copy kernels are GPU→GPU scatter (temp→vn), not CPU→GPU transfers
+  - Next optimization target: eliminate 8 copy kernels (14→6) via DaCe buffer elimination
+

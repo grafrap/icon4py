@@ -15,7 +15,7 @@ import gt4py.next.typing as gtx_typing
 from gt4py.next import backend as gtx_backend
 from gt4py.next.program_processors.runners.dace import transformations as gtx_transformations
 
-from icon4py.model.common import model_backends
+from icon4py.model.common import model_backends, dimension
 
 
 log = logging.getLogger(__name__)
@@ -60,6 +60,8 @@ def get_dace_options(
             optimization_args["gpu_block_size_2d"] = (64, 6)
         optimization_args["gpu_memory_pool"] = False
         optimization_args["make_persistent"] = True
+    optimization_args["blocking_dims"] = [dimension.KDim]
+    optimization_args["blocking_size"] = 5
     if optimization_hooks:
         optimization_args["optimization_hooks"] = optimization_hooks
     if optimization_args:
@@ -163,6 +165,7 @@ def setup_program(
             remap_sizes=remap_sizes,
             allocator=backend,
             offset_provider=offset_provider,
+            symbolic_domain_sizes={**horizontal_sizes, **vertical_sizes},
         )
         return functools.partial(
             wrapper,

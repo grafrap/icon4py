@@ -158,3 +158,8 @@ err*.txt
 stencil_reference.txt
 debug_out/*
 output/*
+slurm_*
+*.txt
+.cupy_cache/
+.gt_cache*
+slurm/*

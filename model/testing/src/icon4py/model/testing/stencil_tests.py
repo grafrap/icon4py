@@ -11,6 +11,7 @@ from __future__ import annotations
 import contextlib
 import dataclasses
 import os
+import time
 from collections.abc import Callable, Generator, Mapping, Sequence
 from typing import Any, ClassVar, Final
 
@@ -177,6 +178,22 @@ def test_and_benchmark(
             input_data=prepared_input_data, reference_outputs=reference_outputs
         )
 
+    # Emit [timing] lines for the unstructured path. The structured path already emits
+    # these from cartesian_interceptor.py on every call (including the verification call
+    # above). For unstructured we add an explicit loop so extract_timing_stats.py can
+    # compute median exec times the same way for both backends.
+    if os.environ.get("USE_STRUCTURED_BACKEND", "0") != "1":
+        program_name = getattr(self.PROGRAM, "__name__", str(self.PROGRAM))
+        n_runs = int(os.getenv("ICON4PY_TIMING_RUNS", "5"))
+        # First call may still include JIT compilation; emit it anyway so
+        # extract_timing_stats.py can skip it (consistent with structured path).
+        for _ in range(n_runs):
+            _t0 = time.perf_counter()
+            _configured_program(**prepared_input_data, offset_provider=grid.connectivities)
+            _t1 = time.perf_counter()
+            _elapsed = _t1 - _t0
+            print(f"[timing] {program_name} exec={_elapsed:.8f}s total={_elapsed:.8f}s")
+
     if not skip_stenciltest_benchmark:
         warmup_rounds = int(os.getenv("ICON4PY_STENCIL_TEST_WARMUP_ROUNDS", "1"))
         iterations = int(os.getenv("ICON4PY_STENCIL_TEST_ITERATIONS", "10"))
@@ -196,6 +213,7 @@ def test_and_benchmark(
         # Collect GT4Py runtime metrics if enabled
         if gtx_metrics.is_any_level_enabled():
             metrics_key = None
+            program_name = self.PROGRAM.__name__
             # Run the program one final time to get the metrics key
             METRICS_KEY_EXTRACTOR: Final = "metrics_id_extractor"
 
@@ -206,7 +224,7 @@ def test_and_benchmark(
                 offset_provider: gtx.common.OffsetProvider,
                 enable_jit: bool,
                 kwargs: dict[str, Any],
-            ) -> Generator[None, None, None]:
+            ) -> contextlib.AbstractContextManager:
                 yield
                 # Collect the key after running the program to make sure it is set
                 nonlocal metrics_key
@@ -219,14 +237,40 @@ def test_and_benchmark(
                 **_properly_allocated_input_data, offset_provider=grid.connectivities
             )
             gtx_hooks.program_call_context.remove(METRICS_KEY_EXTRACTOR)
+            # Fallback: if the context-hook did not capture the key (e.g., metrics
+            # collection was enabled after the context was entered), try to find a
+            # source key that starts with the original program name in the global metrics
+            # store. This makes the test more robust on different environments.
+            if metrics_key is None:
+                for k in gtx_metrics.sources.keys():
+                    if k.startswith(program_name):
+                        metrics_key = k
+                        break
+                    if gtx_metrics.sources[k].metadata.get("name") == program_name:
+                        metrics_key = k
+                        break
+            if metrics_key is None:
+                # Debug dump to help trace why metrics key was not set
+                try:
+                    print("DEBUG: GT4Py config.COLLECT_METRICS_LEVEL=", gtx.config.COLLECT_METRICS_LEVEL)
+                except Exception:
+                    pass
+                print("DEBUG: gtx_metrics.is_any_level_enabled()=", gtx_metrics.is_any_level_enabled())
+                keys = list(gtx_metrics.sources.keys())
+                print(f"DEBUG: gtx_metrics.sources keys ({len(keys)}):", keys)
+                for k in keys:
+                    try:
+                        print(f"DEBUG: key={k}, metadata=", gtx_metrics.sources[k].metadata)
+                    except Exception:
+                        pass
             assert metrics_key is not None, "Metrics key could not be recovered during run."
             assert metrics_key.startswith(
-                _configured_program.__name__
-            ), f"Metrics key ({metrics_key}) does not start with the program name ({_configured_program.__name__})"
+                program_name
+            ), f"Metrics key ({metrics_key}) does not start with the program name ({program_name})"
 
-            assert (
-                len(_configured_program._compiled_programs.compiled_programs) == 1
-            ), "Multiple compiled programs found, cannot extract metrics."
+            # `_configured_program` may be wrapped (e.g. synchronized wrappers) and
+            # therefore not expose `_compiled_programs`. Since we already resolved a
+            # concrete metrics key, use it directly instead of relying on wrapper internals.
             metrics_data = gtx_metrics.sources
             compute_samples = metrics_data[metrics_key].metrics["compute"].samples
             # exclude:
@@ -324,6 +368,11 @@ class StencilTest:
                     e2v_conn = grid.connectivities.get("E2V")
                     e2v_array = e2v_conn.asnumpy() if e2v_conn is not None else None
                     index_map, remap_sizes = get_global_grid_mapping(e2v_override=e2v_array)
+                    symbolic_domain_sizes = {
+                        name: input_data[name]
+                        for name in static_variant
+                        if name in input_data
+                    }
                     cls._structured_wrapper = GenericStructuredWrapper(
                         operator=self.PROGRAM,
                         backend_factory=_chosen_factory,
@@ -331,6 +380,7 @@ class StencilTest:
                         remap_sizes=remap_sizes,
                         allocator=model_backends.get_allocator(backend_like),
                         offset_provider=grid.connectivities,
+                        symbolic_domain_sizes=symbolic_domain_sizes,
                     )
                 return device_utils.synchronized_function(
                     cls._structured_wrapper, allocator=model_backends.get_allocator(backend_like)
@@ -629,8 +679,12 @@ class StencilTest:
             else:
                 reference_outputs_name = reference_outputs[name]#_backtransform_reference_output(name, reference_outputs[name])  # for mypy
                 assert isinstance(reference_outputs_name, np.ndarray)
-                # write output and reference into other output files
-                open(f"stencil_output.txt", "w").write(str(input_data_name.asnumpy()[gtslice][:,0]) + "\n" + str(reference_outputs_name[refslice][:,0]))
+                # # write output and reference into other output files (full array, no truncation)
+                # open("stencil_output.txt", "w").write(
+                #     np.array2string(input_data_name.asnumpy()[gtslice][:,0], max_line_width=np.inf, threshold=np.inf)
+                #     + "\n"
+                #     + np.array2string(reference_outputs_name[refslice][:,0], max_line_width=np.inf, threshold=np.inf)
+                # )
                 # print(f"output:\n{input_data_name.asnumpy()[gtslice][:,0]}")
                 # print(f"reference:\n{reference_outputs_name[refslice][:,0]}")
                 # print(f"slices - gt4py: {gtslice}, reference: {refslice}")

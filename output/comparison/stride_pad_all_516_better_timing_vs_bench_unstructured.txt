@@ -1,0 +1,12 @@
+=============================================================================================================================================
+Stencil                                                      current structured version    |   unstructured baseline |  Ratio (v2/v1)
+=============================================================================================================================================
+AddExtraDiffusionForWConApproachingCfl                               0.0010639                        0.0009330             0.87698
+AddInterpolatedHorizontalAdvectionOfW                                0.0007151                        0.0006142             0.85885
+ApplyDiffusionToVn[compile_time_domain]                              0.0026494                        0.0013936             0.52599
+CalculateNabla2AndSmagCoefficientsForVn[compile_time_domain]         0.0023164                        0.0016274             0.70254
+InterpolateToCellCenter                                              0.0006113                        0.0005132             0.83940
+MoIconInterpolationScalarCells2vertsScalarRiDsl                      0.0002656                        0.0002582             0.97195
+MoMathDivrotRotVertexRiDsl                                           0.0003161                        0.0003087             0.97649
+=============================================================================================================================================
+
