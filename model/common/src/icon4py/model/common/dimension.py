@@ -49,6 +49,8 @@ C2E2C = gtx.FieldOffset("C2E2C", source=CellDim, target=(CellDim, C2E2CDim))
 C2E2C2E = gtx.FieldOffset("C2E2C2E", source=EdgeDim, target=(CellDim, C2E2C2EDim))
 C2E2C2E2C = gtx.FieldOffset("C2E2C2E2C", source=CellDim, target=(CellDim, C2E2C2E2CDim))
 V2E2V = gtx.FieldOffset("V2E2V", source=VertexDim, target=(VertexDim, V2E2VDim))
+V2E2C2VDim = gtx.Dimension("V2E2C2V", gtx.DimensionKind.LOCAL)
+V2E2C2V = gtx.FieldOffset("V2E2C2V", source=VertexDim, target=(VertexDim, V2E2C2VDim))
 Koff = gtx.FieldOffset("Koff", source=KDim, target=(KDim,))
 KHalfOff = gtx.FieldOffset("KHalfOff", source=KHalfDim, target=(KHalfDim,))
 
