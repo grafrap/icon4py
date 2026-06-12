@@ -384,6 +384,90 @@ against the 2-kernel baseline (2.25 ms at 512×512, K=50).
 
 ---
 
+# Optimization 8: ComposedShiftInliner — automatic chained-connectivity shift composition
+
+## What It Does
+
+`ComposedShiftInliner` is a new IR pass (in `structured_backend_passes.py`, runs after the fusion loop in `apply_common_transforms`) that automatically fuses a two-level connectivity chain into direct composed shifts, eliminating an intermediate materialized field.
+
+**Target pattern**:
+```
+vertex_out ← as_fieldop(λ(ptr_coeff, edge_intermediate, ...) →
+  Σ_s ptr_coeff_s × shift(V2E_s)(edge_intermediate), vertex_domain
+)(ptr_coeff, as_fieldop(λ(src) → concat_where(K[k,∞), shift_k(src), ...), edge_domain)(src), ...)
+```
+
+When `edge_intermediate` is a **simple per-kolor shifted passthrough** — i.e., each kolor branch is just `as_fieldop(λ(it) → deref(shift(di,dj,dk)(it)))(source_field)` — the outer V2E shifts and inner per-kolor shifts can be **composed arithmetically**:
+
+```
+composed(di, dj, dk) = (outer_V2E_di + inner_kolor_k_di,
+                        outer_V2E_dj + inner_kolor_k_dj,
+                        outer_V2E_dk + inner_kolor_k_dk)
+```
+
+The composed kolor (`outer_dk + inner_dk`) must land within the outer output domain's valid kolor range (validity guard). After composition and CSE on unique shifts, the intermediate `as_fieldop` is eliminated and the outer kernel reads `source_field` directly.
+
+**Example**: V2E∘E2C2V with dk always cancelling to 0 → 24 (6×4) raw compositions → 7 unique (IDim, JDim) vertex→vertex shifts.
+
+## Where the Pass Lives
+
+- Registration: `apply_common_transforms` in `pass_manager.py`, **after the fusion loop** (after `FuseAsFieldOp` + `InlineLambdas` create `__iasfop_N` synthetic names)
+- Also registered in `apply_fieldview_transforms` (DaCe path) after its fusion loop
+- Gated on `USE_STRUCTURED_BACKEND=1`
+- Exported from `cart_unroll.py` alongside the other structured passes
+
+## Two Bugs Fixed to Make It Work in Production
+
+**Bug 1 — Ordering**: Originally placed after `CartesianReductionUnroller` (too early). The `__iasfop_N` synthetic intermediates are created by `FuseAsFieldOp` in the fusion loop, which runs ~50 passes later. Running the inliner before the fusion loop means the intermediate doesn't exist yet — the pattern never matches.
+
+**Bug 2 — Condition format**: `_extract_kolor_branch_shifts` only handled `K[k,k+1)` (exact/forward) conditions produced by `_build_field_concat_where_from_branches`. After `canonicalize_domain_argument` + `FuseAsFieldOp` + `InlineLambdas`, the conditions change to `K[k,∞)` (threshold/inverse) with `ir.InfinityLiteral.POSITIVE` as the upper bound. Added `_kolor_lo_from_cond()` static method to detect the infinity upper bound, and rewrote `_extract_kolor_branch_shifts` to try the exact format first, then the threshold format.
+
+## Why It Does Not Fire on rbf_nabla4
+
+Looking at the actual production IR for `rbf_nabla4`, `__iasfop_216` = `z_nabla4_e2` is **not** a simple per-kolor shift passthrough. It is the full `_calculate_nabla4` formula: 4 E2C2V reads of u_vert/v_vert cast to wpfloat, each multiplied by `primal_normal_vert_v1/v2`, combined with `z_nabla2_e`, `inv_vert_vert_length`, `inv_primal_edge_length`. This is wrapped in a `λ(__ct_el_6, __ct_el_7) → nabla4_asfop(...)` closure (not a bare applied `as_fieldop`), so `ComposedShiftInliner._find_eligible_inner_arg` returns None — the pass is a no-op.
+
+This is the right outcome: composing the full nabla4 per V2E slot is exactly **Optimization 6's forced fusion** (9× regression). The correct approach for rbf_nabla4 is **Optimization 7** (`rbf_nabla4_direct` with the hand-coded V2E2C2V connectivity).
+
+## When It Does Fire
+
+The pass fires when the inner intermediate is purely a per-kolor shift remapping — no arithmetic, just `deref(shift(di,dj,dk)(src))`. Example stencil pattern:
+```python
+# Pass 1: remap u_vert to edge domain (pure shift lookup, no formula)
+edge_u = u_vert(E2C2V[0])          # just shifts u_vert, no multiplication
+
+# Pass 2: accumulate across V2E
+out = Σ_s coeff_s * edge_u(V2E[s])  # V2E reads the shift-passthrough intermediate
+```
+
+No current stencil in the suite has this exact shape (all edge intermediates have real arithmetic), so the pass is currently a no-op for all 10 stencils. It is useful for future stencils or if the inner passthrough shape emerges after IR simplification.
+
+## Unit Tests
+
+File: `../gt4py/tests/next_tests/unit_tests/iterator_tests/transforms_tests/test_composed_shift_inliner.py`
+
+31 tests covering:
+- `_extract_kolor_branch_shifts` with exact `K[k,k+1)` format (4 tests)
+- `_extract_kolor_branch_shifts` with threshold `K[k,∞)` format (5 tests, including `_kolor_lo_from_cond`)
+- V2E∘E2C2V 2-kolor fusion (4 tests)
+- E2C∘C2E edge fusion (4 tests)
+- C2E∘E2C cell fusion (3 tests)
+- V2E∘E2C2V 3-kolor fusion (2 tests) — models the rbf_nabla4 composed shift pattern
+- Threshold-format 3-kolor V2E∘E2C2V fusion (3 tests) — tests the production IR condition format
+- Threshold-format E2C∘C2E fusion (2 tests)
+- No-op cases: single outer shift, same kolor domain, invalid composed kolor (3 tests)
+
+All 31 tests pass on the cluster.
+
+## Files Changed
+
+| File | Change |
+|---|---|
+| `../gt4py/src/gt4py/next/iterator/transforms/structured_backend_passes.py` | `_kolor_lo_from_cond` static method; rewrote `_extract_kolor_branch_shifts` to handle both `K[k,k+1)` and `K[k,∞)` |
+| `../gt4py/src/gt4py/next/iterator/transforms/pass_manager.py` | Moved `ComposedShiftInliner.apply()` from after `CartesianReductionUnroller` to after the fusion loop, in both `apply_common_transforms` and `apply_fieldview_transforms` |
+| `../gt4py/tests/next_tests/unit_tests/iterator_tests/transforms_tests/test_composed_shift_inliner.py` | New file: 31 unit tests |
+
+---
+
 ## Alternative (future): IR-level inlining + DCE + CSE + prefactor gathering
 
 Instead of hand-writing `rbf_nabla4_direct`, one could automate this entirely at the IR level:
