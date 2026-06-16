@@ -426,8 +426,6 @@ The composed kolor (`outer_dk + inner_dk`) must land within the outer output dom
 
 Looking at the actual production IR for `rbf_nabla4`, `__iasfop_216` = `z_nabla4_e2` is **not** a simple per-kolor shift passthrough. It is the full `_calculate_nabla4` formula: 4 E2C2V reads of u_vert/v_vert cast to wpfloat, each multiplied by `primal_normal_vert_v1/v2`, combined with `z_nabla2_e`, `inv_vert_vert_length`, `inv_primal_edge_length`. This is wrapped in a `λ(__ct_el_6, __ct_el_7) → nabla4_asfop(...)` closure (not a bare applied `as_fieldop`), so `ComposedShiftInliner._find_eligible_inner_arg` returns None — the pass is a no-op.
 
-This is the right outcome: composing the full nabla4 per V2E slot is exactly **Optimization 6's forced fusion** (9× regression). The correct approach for rbf_nabla4 is **Optimization 7** (`rbf_nabla4_direct` with the hand-coded V2E2C2V connectivity).
-
 ## When It Does Fire
 
 The pass fires when the inner intermediate is purely a per-kolor shift remapping — no arithmetic, just `deref(shift(di,dj,dk)(src))`. Example stencil pattern:
@@ -484,6 +482,179 @@ optimization and could also benefit other stencils with composed connectivity re
 
 ---
 
+# Optimization 9: rbf_nabla4 auto-opt + GPU-knob re-benchmark (2026-06-13)
+
+Re-ran the full `DACE_OPT_EXPERIMENT` sweep plus a new GPU-knob sweep on **rbf_nabla4 only**
+(@ 512×512, K=50, dace_gpu). All numbers are the **GT4Py Timer Report median** (GPU
+exec-only; structured additionally pays pack/unpack on top). The target to beat is the
+**unstructured** run of the same stencil.
+
+## Baseline to beat
+
+| Run | Median |
+|---|---|
+| **unstructured** (USE_STRUCTURED_BACKEND=0) | **0.863 ms** |
+
+The structured backend is still **~13% behind unstructured** on exec time for this stencil,
+even after the best tuning below.
+
+## DACE_OPT_EXPERIMENT sweep (2-kernel form, CSI off)
+
+| Experiment | Median | Note |
+|---|---|---|
+| `FD` (current default) | 1.003 ms | JDim block + scan unroll |
+| `G` reuse_transients | 1.005 ms | **no longer catastrophic** (was 19 ms class) |
+| `F` scan unroll | 1.006 ms | |
+| `D` JDim block | 1.006 ms | |
+| `none` opt_v2 | 1.015 ms | |
+| `E` fuse_tasklets | 1.022 ms | **no longer catastrophic** |
+| `K` KDim block | 2.440 ms | regresses — K is unit-stride, no cross-iter reuse |
+| `FK` | 2.496 ms | regresses |
+| `I` inline transients | 17.723 ms | **now catastrophic** (recomputes edge field) |
+
+Takeaway: the dataflow knobs (none/F/D/FD/E/G) all cluster at ~1.00–1.02 ms (within noise).
+K-blocking hurts (K is already the contiguous innermost dim — tiling it only adds overhead).
+`I` inlines the materialized edge intermediate → recompute → blows up, same trap as CSI fusion.
+
+## GPU-knob sweep (new letters, applied on top of FD)
+
+New `DACE_OPT_EXPERIMENT` letters wired in `translation.py`:
+
+| Letter | Knob | Value env (default) |
+|---|---|---|
+| `B` | `gpu_block_size` | `DACE_GPU_BLOCK_SIZE` ("64,4,1") |
+| `R` | `gpu_maxnreg` | `DACE_GPU_MAXNREG` ("64") |
+| `L` | `gpu_launch_factor` (clears fixed launch_bounds) | `DACE_GPU_LAUNCH_FACTOR` ("2") |
+| `P` | `make_persistent=True` | — |
+| `M` | `demote_fields` | `DACE_DEMOTE_FIELDS` (comma-separated names) |
+| `N` | `blocking_only_if_independent_nodes=False` | — |
+
+Note: `B` keeps the fixed `gpu_launch_bounds="256,8"`, so block-size products must stay ≤256.
+
+| Config | Median | vs FD |
+|---|---|---|
+| **FDBR** (block 64,4,1 + maxnreg 64) | **0.974 ms** | **−4.1%** ✓ best structured |
+| `FDB` (block 64,4,1) | 0.976 ms | −3.9% ✓ |
+| `FDB` (block 128,2,1) | 0.981 ms | −3.4% ✓ |
+| `FDR` (maxnreg 64) | 1.010 ms | ~0 |
+| `FDL` (launch factor 2) | 1.012 ms | ~0 |
+| `FD` reference | 1.016 ms | — |
+| `FDR` (maxnreg 128) | 1.043 ms | +2.7% |
+| `FDN` (blocking everywhere) | 1.460 ms | +44% ✗ |
+| `FDP` (make_persistent) | 24.253 ms | catastrophic ✗ |
+
+**Only `gpu_block_size` helps**: reshaping the GPU block from the default `(32,8,1)` to
+`(64,4,1)` is a clean ~4% win (1.016 → 0.976 ms); `maxnreg=64` on top nudges to 0.974 ms.
+`make_persistent` is catastrophic; `launch_factor`/`maxnreg`/`blocking-everywhere` don't help.
+Best structured (0.974 ms) still trails unstructured (0.863 ms) by ~13% — the remainder is
+structural, not reachable by these knobs.
+
+### `demote_fields` (M) — investigated, inapplicable to rbf_nabla4
+
+`demote_fields` flips a **non-transient** field to `transient=True` so the optimizer can
+eliminate it; it warns and skips anything already transient. Dumping the SDFG arrays
+(`DACE_DUMP_ARRAYS=1`) for rbf_nabla4 @ 512 shows **11 non-transient** arrays — all genuine
+program I/O (`u_vert_out`, `v_vert_out`, `u_vert`, `v_vert`, `z_nabla2_e`, `ptr_coeff_1/2`,
+`primal_normal_vert_v1/v2`, `inv_vert_vert_length`, `inv_primal_edge_length`) — and **129
+transients** (`gtir_tmp_*`), which already include the materialized edge nabla4 field. So the
+one field we'd want to demote is **already a transient** (fully eligible for fusion/elimination),
+and the only demotable fields are real I/O (demoting an output discards the result). The 2-kernel
+split is **not** a missing-transient-flag problem — it's inherent: the V2E reduce reads 6 distinct
+edge neighbors per vertex, so the edge map and vertex map can't fuse without the recompute penalty
+(= the ~4 ms CSI/`I`/direct path). `demote_fields` is therefore a no-op for this stencil. The `M`
+letter + `DACE_DUMP_ARRAYS=1` diagnostic remain wired for stencils that *do* expose a non-transient
+scratch field.
+
+### Blocking dimension (1D vs 2D) — only J blocks by default; 2D doesn't help
+
+`LoopBlocking` is single-dimension (tiles one map param into outer `coarse:N:B` + inner
+sequential loop, hoisting that-dim-*independent* nodes to once-per-block). The `FD` default
+blocks **only JDim**; IDim is the warp/thread dim (`unit_strides_dim`), K is the unrolled scan
+loop, Kolor is trivial. Added multi-dim support: `blocking_dim` may now be a list (LoopBlocking
+applied once per dim in `auto_optimize.py`), driven by `DACE_BLOCKING_DIMS` (e.g. "IDim,JDim").
+
+Sweep (rbf_nabla4 @ 512): block-J(ref) 1.025, block-I 1.004, block-I+J 1.005 (sizes 4/8/16 all
+~1.005), block-I+J+`gpu_block_size` 0.989 ms. **2D blocking is within noise of 1D and *worse*
+than the 1D `FDB`/`FDBR` best (0.974–0.976)**. Reason: nabla4's body depends on both I- and
+J-neighbor reads, so there are almost no dimension-independent nodes to hoist on any axis — the
+blocking *dimension* is not the lever for this stencil. Capability kept for future stencils with
+real per-axis reuse.
+
+### GPU grid-dim remap (iteration order) — works, but slower
+
+`unit_strides_dim` controls only the map iteration order (→ GPU grid-dim assignment), not the
+memory strides (those are `gt_change_strides(HORIZONTAL)` → IDim stride-1, independent). Exposed
+via `DACE_UNIT_STRIDES_DIMS` (default "IDim"). Setting "IDim,JDim" reorders the grid so
+**JDim→blockIdx.y** and **K&Kolor→blockIdx.z** (verified in the generated `.cu`), vs the default
+**K→blockIdx.y**. Result: **1.58 ms (FD) / 1.59 ms (FDB)** — ~58% *slower* than the K→y default.
+Keeping K on the thread `y`-dimension (processing several K-levels per block, K contiguous after
+stride setup) coalesces better than putting large-stride JDim on threads and serializing K across
+`blockIdx.z`. Default stays "IDim"; knob kept for experimentation.
+
+### `cudaFuncSetAttribute` — inapplicable (no shared memory)
+
+The generated kernels use **0 shared memory** (`grep -c __shared__` = 0). So
+`cudaFuncAttributePreferredSharedMemoryCarveout` is a no-op (the driver already gives a
+zero-shared kernel max L1), and `cudaFuncAttributeMaxDynamicSharedMemorySize` is irrelevant
+(nothing to size). `cudaFuncSetAttribute` only becomes useful **if** shared-memory tiling is
+implemented (to request the large shared allocation for a staged edge field) — i.e. it's a
+prerequisite for that structural fix, not an independent lever.
+
+### Sequential-K (2.5D vertical loop) — implemented, works, but regresses without hoisting
+
+NCU on the fastest config (FDB): dominant kernel `map_22` (862 µs, ~80% of runtime) is
+**latency-bound but near-optimal** — achieved occupancy 86.6% (32 regs/thread, on the
+max-occupancy plateau), SM Busy 66%, Mem Busy 65% / Max BW 57%, L1 53% / L2 73%, top pipe
+ALU/ADU (address arithmetic). No saturated unit; occupancy is not the lever.
+
+Implemented an opt-in `DACE_SEQUENTIAL_K=1` transform (`_sequentialize_k_dimension` in
+`translation.py`): after the GPU transform it uses `dace.transformation.helpers.extract_map_dims`
+to strip K out of the top-level GPU map into a nested `Sequential` map → GPU grid over
+[IDim,JDim,Kolor] + per-thread `for K` loop. **Verified**: the `.cu` shows a real
+`for (i_K=0; i_K<50; ++i_K)` loop, Kolor moves to blockIdx.y, results match reference.
+
+**But it's ~85% slower** (seqK_FD 1.812, seqK_FDB 1.902 ms vs ~1.0 / 0.976). Reason: the K-loop
+body still re-evaluates the full `concat_where` boundary ternaries **and** all address
+arithmetic *every* K iteration — the K-independent work was **not hoisted** out of the loop
+(DaCe does no automatic LICM across the new sequential map, and the boundary ternaries live
+inside the tasklet so map-restructuring can't lift them). So we lost K-parallelism (which was
+hiding latency) without reducing per-element work. The transform is kept (gated, off by default)
+because it's a correct prerequisite — the 2.5D win only materializes once paired with
+K-invariant hoisting + the `concat_where` domain-split (interior vs boundary).
+
+## ComposedShiftInliner update (supersedes Opt 8 "does not fire")
+
+The Opt 8 note that CSI is a no-op for rbf_nabla4 is **out of date**. CSI now fires for
+rbf_nabla4 after three fixes: (1) `_resolve_inner_asfop` beta-reduces the
+`λ(__ct_el_6,__ct_el_7) → nabla4_asfop(...)` closure to reach the inner edge `as_fieldop`;
+(2) sparse-local args (`primal_normal_vert_v1/v2`, read via `list_get`) are passed raw and
+shifted **in-body** (`list_get(n, ·⟪shift⟫(field))`) instead of bailing; (3) `infer_program`
+gets `allow_uninferred=True` + `prune_empty_concat_where` at the structured infer sites, and
+`prune_empty_concat_where` now also prunes `DomainAccessDescriptor.NEVER` branches. CSI then
+produces a **single kernel with 0 Kolor concat_where**, structurally equal to
+`rbf_nabla4_direct`.
+
+**But fusion is a pessimization at scale** (confirms Opt 6): CSI 1-kernel = **4.35 ms** vs
+2-kernel = **1.00 ms** at 512×50, because the E2C2V nabla4 is recomputed at all 6 V2E slots.
+The hand-written `rbf_nabla4_direct` is **4.02 ms** — i.e. the single-kernel approach itself
+is ~4× slower, not a CSI deficiency (the earlier "2× speedup" for the direct version was a
+vertical-levels measurement artifact). CSI is therefore **gated off by default**, opt-in via
+`GT4PY_ENABLE_CSI=1`.
+
+## Files changed (Opt 9)
+
+| File | Change |
+|---|---|
+| `../gt4py/.../dace/workflow/translation.py` | New experiment letters `B/R/L/P/M/N` + `K`; `DACE_BLOCKING_SIZE` override |
+| `../gt4py/.../iterator/transforms/pass_manager.py` | CSI gated opt-in (`GT4PY_ENABLE_CSI=1`); `allow_uninferred=True` + prune at 3 structured infer sites |
+| `../gt4py/.../iterator/transforms/structured_backend_passes.py` | CSI: `_resolve_inner_asfop` beta-reduce fix; sparse-arg in-body shift handling |
+| `../gt4py/.../iterator/transforms/prune_empty_concat_where.py` | Prune `DomainAccessDescriptor.NEVER` branches |
+
+Command files: `commands_stencils_nabla_512_optsweep.txt`, `commands_stencils_nabla_512_gpusweep.txt`.
+Outputs: `output/csi_512_optsweep/`, `output/csi_512_gpusweep/`.
+
+---
+
 # TODO: Full Re-benchmark of DACE_OPT_EXPERIMENT
 
 The `DACE_OPT_EXPERIMENT=FD` default was chosen based on benchmarks run before Opt 2 (origin-shift/compact packing) and Opt 3 (grid-size alignment) were implemented. Those optimizations changed the memory layout and array strides significantly — in particular, compact packing makes the write domain start at `ptr[0]` and the IDim size is now `ni_kolor − shift_i` rather than the full `ni`. The relative benefit of loop transformations like JDim blocking (`D`) and scan-loop unrolling (`F`) may have changed.
@@ -502,3 +673,165 @@ The `DACE_OPT_EXPERIMENT=FD` default was chosen based on benchmarks run before O
 | `FDI` | All three |
 
 Run all 10 stencils for each variant. Use `scripts/compare_timing_results.py` to compare against the `none` baseline. Re-record the winning combination as the new `DACE_OPT_EXPERIMENT` default in `translation.py`.
+
+---
+
+# Optimization 10: Fix DaCe CopyND Scalar Local-Memory Spill
+
+## Problem
+
+NCU profiling of `rbf_nabla4_direct` (512×512, K=50) shows:
+- **L1TEX Local Load**: 1.04/32 bytes/sector (3% efficiency, 61% speedup potential)
+- **L2 Local Store**: 1.04/32 bytes/sector (3% efficiency, 70% speedup potential)
+- **Long Scoreboard stalls**: 88.5% of warp cycles stalled on L1TEX (local memory)
+
+Root cause: 108 `dace::CopyND<double, 1, false, 1>::template ConstDst<1>::Copy(src, &gtir_tmp_N, 1)` calls in the kernel. The `&gtir_tmp_N` passes the address of a local variable as a `T*` function argument, forcing the compiler to allocate `gtir_tmp_N` in CUDA **local memory** (per-thread addressable stack) rather than a register. CUDA local memory for 256 threads per block is stored non-interleaved → 1 element per 32-byte sector = 3% efficiency.
+
+Note: global memory accesses show 28–30/32 bytes/sector (89–94% efficient) — F-order arrays with IDim in `threadIdx.x` ARE correctly coalesced. The bottleneck is purely local memory.
+
+## Fix: Direct Assignment in DaCe cpu.py
+
+File: `/capstor/scratch/cscs/rgraf/icon4py/.venv/lib/python3.10/site-packages/dace/codegen/targets/cpu.py`
+
+In `_emit_copy()` (line ~862), when:
+- `nc == True` (no write-conflict)
+- `memlet.wcr is None` (plain copy)
+- `dst_expr.startswith('&')` (scalar destination, DaCe DefinedType.Scalar)
+- `dynshape == 0` (static shape, confirmed by CopyND template `<..., 1>`)
+- `copy_shape == [1]` (one element)
+
+Emit `{var} = *({src_ptr});` instead of `CopyND(..., &{var}, 1)`. Direct assignment never takes the address of `{var}` → compiler keeps it in a register → no local memory spill.
+
+This fix flows to GPU kernels via: `cuda._emit_copy` (storage mismatch) → `self._cpu_codegen.copy_memory()` → `cpu._emit_copy()`.
+
+## Secondary Issue: K in threadIdx.y → Redundant 2D Field Loads
+
+With `threadIdx.y = K` (8 threads) and K-stride ~6.3 MB, all 8 K-threads simultaneously load the same K-independent values (primal_normal_vert, ptr_coeff). Fix via `DACE_SEQUENTIAL_K=1` (already implemented).
+
+## Benchmark Commands
+
+```bash
+# All 4 variants in commands_stencils_nabla_512_copyndfix.txt:
+#   direct_FD:      rbf_nabla4_direct with CopyND fix   (target: < 4.47ms baseline)
+#   twokernel_FD:   rbf_nabla4 (2-kernel) with fix      (target: < 1.45ms current best)
+#   direct_seqK_F:  direct + seqK + scan_loop_unrolling
+#   direct_seqK_FD: direct + seqK + JDim blocking + scan
+
+rm -rf /scratch/mch/rgraf/icon4py/.gt4py_cache
+sbatch scripts/santis_run_stencil_commands_slurm.sh \
+  -c commands_stencils_nabla_512_copyndfix.txt \
+  -o output/copyndfix_test/
+```
+
+Expected: CopyND calls in generated `.cu` replaced by `gtir_tmp_N = *(ptr + offset);`
+NCU after fix: L1TEX Local Load → near 32/32 bytes/sector; Long Scoreboard stalls eliminated.
+
+**Result (output/copyndfix_test): zero runtime improvement.** The fix correctly eliminated all
+108 CopyND calls in the generated `.cu`, but exec time was unchanged (two-kernel: 1.007 ms before
+and after). Root cause: the register spilling was NOT caused by CopyND address-taking. The
+compiler was already spilling to local memory due to `__launch_bounds__(256, 8)` forcing only 32
+registers per thread — CopyND variables were a symptom, not the cause. See Optimization 11 for
+the actual fix.
+
+---
+
+# Optimization 11: GPU Launch Bounds — Eliminate Register Spill on Large Kernels
+
+## Root Cause
+
+NCU profiling of `rbf_nabla4_direct` (512×512, K=50, default `DACE_OPT_EXPERIMENT=FD`) shows:
+- **83.6% of warp stalls** from local memory (Long Scoreboard stalls on L1TEX)
+- **L1TEX Local Load**: 1.04/32 bytes/sector (3% efficiency)
+- **L2 Local Store**: 1.04/32 bytes/sector (3% efficiency)
+
+The D-blocking pass (blocking_dim=JDim, blocking_size=8) creates a sequential inner JDim loop of
+8 iterations per thread. Each iteration introduces ~30 local double temporaries → ~237 doubles
+total per thread → 474 half-registers needed. DaCe hardcoded `__launch_bounds__(256, 8)` on every
+GPU map: `min_blocks=8` → only `65536 regs / (8 blocks × 256 threads) = 32 regs/thread` allocated
+by the compiler. With 474 needed and 32 available, **nearly all temporaries spill to CUDA local
+memory** (per-thread stack, non-interleaved across warp → 1 element per 32-byte sector = 3%
+efficiency). The single fused kernel (produced by CSI or written by hand as `rbf_nabla4_direct`)
+is particularly exposed because it has the full V2E×E2C2V computation in one kernel body.
+
+## Fix: `DACE_GPU_LAUNCH_BOUNDS` env var
+
+Added `DACE_GPU_LAUNCH_BOUNDS` support to `translation.py`. The value is passed as the
+`gpu_launch_bounds` parameter to `gt_auto_optimize` (and the fallback `gt_gpu_transformation`
+path). Default stays `"256, 8"` to avoid breaking existing stencils; override per-experiment:
+
+```python
+# translation.py (structured_opt_args):
+_launch_bounds = _os.environ.get("DACE_GPU_LAUNCH_BOUNDS", "256, 8")
+structured_opt_args = {
+    ...
+    "gpu_launch_bounds": _launch_bounds,
+}
+```
+
+| Value | min_blocks | regs/thread | Effect |
+|---|---|---|---|
+| `"256, 8"` (default) | 8 | 32 | Heavy spill — only viable for small kernels |
+| `"256, 2"` | 2 | 128 | **Sweet spot**: enough regs to avoid worst spill, enough occupancy |
+| `"256, 1"` | 1 | 255 | Too low occupancy (1 block/SM) → worse latency hiding |
+| `"0"` | — | compiler decides | Compiler chose same occupancy as lb11 → 0.925 ms |
+
+## Benchmark Results (512×512, K=50, dace_gpu, `DACE_OPT_EXPERIMENT=FD`)
+
+All numbers are the **GT4Py Timer Report median**. All structured runs used 512×512 grid.
+
+| Config | Stencil | Median | vs Unstructured |
+|---|---|---|---|
+| Unstructured dace_gpu | rbf_nabla4 | **0.845 ms** | baseline |
+| Structured FD, lb82 (default) | rbf_nabla4_direct | 4.030 ms | 4.8× slower |
+| Structured FD, lb21 | rbf_nabla4_direct | **0.650 ms** | **23% faster** ✓ |
+| Structured FD, lb11 | rbf_nabla4_direct | 0.925 ms | 9.5% slower |
+| Structured FD, lb0 (compiler) | rbf_nabla4_direct | 0.925 ms | 9.5% slower |
+| Structured FD, lb82 (default) | rbf_nabla4 (2-kernel) | 1.007 ms | 19% slower |
+| Structured FD, lb21 | rbf_nabla4 (2-kernel) | 1.014 ms | 20% slower |
+| CSI + FD, lb82 (no lb change) | rbf_nabla4 (CSI-fused) | 4.350 ms | 5.1× slower |
+| **CSI + FD, lb21** | **rbf_nabla4 (CSI-fused)** | **0.669 ms** | **21% faster** ✓ |
+
+Outputs: `output/launchbounds_test/`, `output/csi_lb21/`.
+
+## Key Findings
+
+**lb21 ("256, 2") is the sweet spot**: 2 blocks/SM → 128 regs/thread → enough registers
+to eliminate the worst spilling (from 32 regs) while keeping enough occupancy (2 warps/SM
+block-slot = 16 active warps) for latency hiding. lb11 and lb0 both land at 0.925 ms because
+dropping to 1 block/SM loses too much latency hiding even though registers increase.
+
+**The two-kernel is unaffected**: The FD default two-kernel (1.007 ms) stays ~1.007 ms with
+lb21, because each of its two smaller kernels fits in 32 regs/thread without catastrophic
+spilling. The launch bounds lever only matters for large single-kernel stencils.
+
+**CSI + lb21 beats unstructured**: `GT4PY_ENABLE_CSI=1 DACE_GPU_LAUNCH_BOUNDS="256, 2"` on the
+standard `rbf_nabla4` stencil gives 0.669 ms — 21% faster than the unstructured baseline (0.845
+ms) — using no hand-written stencil. The auto-fused + lb21 result is within 3% of the
+hand-written `rbf_nabla4_direct` with lb21 (0.650 ms), confirming that CSI produces a
+structurally equivalent single kernel.
+
+**Why direct kernel with lb21 is slightly faster than CSI + lb21 (0.650 vs 0.669 ms)**: minor
+differences in kernel structure from the fusion pass (extra lambda indirections in the CSI IR
+path).
+
+## Command and Output
+
+```bash
+# Launchbounds sweep (direct kernel only):
+sbatch scripts/santis_run_stencil_commands_slurm.sh \
+  -c commands_stencils_nabla_512_launchbounds.txt \
+  -o output/launchbounds_test/
+
+# CSI + lb21 vs unstructured head-to-head:
+sbatch scripts/santis_run_stencil_commands_slurm.sh \
+  -c commands_stencils_nabla_csi_lb21.txt \
+  -o output/csi_lb21/
+```
+
+## Files Changed
+
+| File | Change |
+|---|---|
+| `../gt4py/src/gt4py/next/program_processors/runners/dace/workflow/translation.py` | `DACE_GPU_LAUNCH_BOUNDS` env var; pass `gpu_launch_bounds` to `gt_auto_optimize` and fallback `gt_gpu_transformation` |
+| `commands_stencils_nabla_512_launchbounds.txt` | 5-experiment sweep: lb82/lb21/lb11/lb0 on direct, lb21 on two-kernel |
+| `commands_stencils_nabla_csi_lb21.txt` | 3-way head-to-head: unstructured / two-kernel FD / CSI+FD+lb21 |
