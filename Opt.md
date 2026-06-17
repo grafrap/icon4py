@@ -835,3 +835,64 @@ sbatch scripts/santis_run_stencil_commands_slurm.sh \
 | `../gt4py/src/gt4py/next/program_processors/runners/dace/workflow/translation.py` | `DACE_GPU_LAUNCH_BOUNDS` env var; pass `gpu_launch_bounds` to `gt_auto_optimize` and fallback `gt_gpu_transformation` |
 | `commands_stencils_nabla_512_launchbounds.txt` | 5-experiment sweep: lb82/lb21/lb11/lb0 on direct, lb21 on two-kernel |
 | `commands_stencils_nabla_csi_lb21.txt` | 3-way head-to-head: unstructured / two-kernel FD / CSI+FD+lb21 |
+
+---
+
+# Optimization 12: __maxnreg__ and Sequential-K sweep (2026-06-17)
+
+## Goal
+
+After establishing CSI+FD+lb21 = 0.669 ms (Opt 11), explore whether:
+1. `__maxnreg__(N)` (CUDA 12.5+ attribute, no occupancy constraint) beats lb21 for large kernels
+2. Removing D-blocking (F-only) changes the spill pattern significantly
+3. Sequential K (structurally closest to reference `gpu_kloop`) helps
+
+The reference kernel (`gpu_kloop_nabla4_interpolate_inlined_structured`) uses:
+- Sequential K with `blockDim.z=2` stride, K-independent pre-load of 72 doubles into register arrays
+- `__launch_bounds__(256)` only (no min_blocks)
+- 7 unique u_vert reads per K-thread (NVCC CSE on `v2e2c2v_compressed`)
+- ~96 K-independent loads done ONCE before K-loop
+
+Our DaCe CSI kernel structural gaps (all post Opt11):
+- 416 `double gtir_tmp_*` locals vs ~78 in reference
+- 48 u_vert reads (2×24 because nabla4 recomputed for both outputs — no shared intermediate)
+- K-independent loads (`primal_normal`, `ptr_coeff`) re-read per K-thread (L2 absorbs at K=50)
+- lb21 gives 128 regs/thread → 64 doubles in registers, ~352 doubles spill
+
+See `cuda_comparison/COMPARISON.md` for the full side-by-side analysis.
+
+## Sweep: 8 experiments (job 933329, `output/csi_maxnreg_sweep/`)
+
+| Label | DACE_OPT_EXPERIMENT | Launch control | Notes |
+|---|---|---|---|
+| csi_FD_lb21 | FD | `LAUNCH_BOUNDS="256, 2"` | Previous best — baseline verify |
+| csi_F_lb21 | F | `LAUNCH_BOUNDS="256, 2"` | No D-blocking |
+| csi_FD_lb10 | FD | `LAUNCH_BOUNDS="256"` | Reference-style (no min_blocks) |
+| csi_FD_maxnreg62 | FDR | `MAXNREG=62` | Colleague tip — drops lb |
+| csi_F_maxnreg62 | FR | `MAXNREG=62` | No D-blocking + maxnreg |
+| csi_F_maxnreg128 | FR | `MAXNREG=128` | Same budget as lb21 without occupancy constraint |
+| csi_seqK_F_lb21 | F | `LAUNCH_BOUNDS="256, 2"` + `SEQUENTIAL_K=1` | Sequential K, no K-hoisting in DaCe |
+| csi_seqK_F_maxnreg62 | FR | `MAXNREG=62` + `SEQUENTIAL_K=1` | Closest to reference structure |
+| unstruct | — (USE_STRUCTURED_BACKEND=0) | — | Unstructured baseline |
+
+## Results (to be filled when job 933329 completes)
+
+| Config | Median | vs Unstructured (0.845 ms) |
+|---|---|---|
+| csi_FD_lb21 (previous best) | TBD | TBD |
+| csi_F_lb21 | TBD | TBD |
+| csi_FD_lb10 | TBD | TBD |
+| csi_FD_maxnreg62 | TBD | TBD |
+| csi_F_maxnreg62 | TBD | TBD |
+| csi_F_maxnreg128 | TBD | TBD |
+| csi_seqK_F_lb21 | TBD | TBD |
+| csi_seqK_F_maxnreg62 | TBD | TBD |
+| unstruct | TBD | baseline |
+
+## Files Created
+
+| File | Purpose |
+|---|---|
+| `commands_stencils_nabla_csi_sweep.txt` | 8-experiment sweep command file |
+| `cuda_comparison/rbf_nabla4_existing_cache.cu` | Saved DaCe kernel from cache (CSI+FD+lb21, Jun 16 2026) |
+| `cuda_comparison/COMPARISON.md` | Full structural comparison: DaCe kernel vs reference `gpu_kloop` |

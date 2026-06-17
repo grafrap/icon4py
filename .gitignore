@@ -158,8 +158,13 @@ err*.txt
 stencil_reference.txt
 debug_out/*
 output/*
+.cupy_cache/
+.gt_cache_09062026/
+slurm/
+*.txt
 slurm_*
 *.txt
 .cupy_cache/
 .gt_cache*
 slurm/*
+icon_structured_benchmark/*
