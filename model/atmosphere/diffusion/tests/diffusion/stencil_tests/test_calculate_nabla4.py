@@ -14,6 +14,7 @@ from dataclasses import replace
 import icon4py.model.common.utils.data_allocation as data_alloc
 from icon4py.model.atmosphere.diffusion.stencils.calculate_nabla4 import calculate_nabla4#, calculate_nabla4_cart
 from icon4py.model.common import dimension as dims, type_alias as ta
+from icon4py.model.common.grid import horizontal as h_grid
 from icon4py.model.testing.stencil_tests import StandardStaticVariants, StencilTest
 
 
@@ -26,34 +27,35 @@ def calculate_nabla4_numpy(
     z_nabla2_e: np.ndarray,
     inv_vert_vert_length: np.ndarray,
     inv_primal_edge_length: np.ndarray,
+    z_nabla4_e2: np.ndarray,
+    horizontal_start: int,
+    horizontal_end: int,
+    **kwargs,
 ) -> np.ndarray:
     e2c2v = connectivities[dims.E2C2VDim]
     u_vert_e2c2v = u_vert[e2c2v]
     v_vert_e2c2v = v_vert[e2c2v]
 
-    primal_normal_vert_v1 = np.expand_dims(primal_normal_vert_v1, axis=-1)
-    primal_normal_vert_v2 = np.expand_dims(primal_normal_vert_v2, axis=-1)
-    inv_vert_vert_length = np.expand_dims(inv_vert_vert_length, axis=-1)
-    inv_primal_edge_length = np.expand_dims(inv_primal_edge_length, axis=-1)
+    pnv1 = np.expand_dims(primal_normal_vert_v1, axis=-1)
+    pnv2 = np.expand_dims(primal_normal_vert_v2, axis=-1)
+    ivvl = np.expand_dims(inv_vert_vert_length, axis=-1)
+    ipel = np.expand_dims(inv_primal_edge_length, axis=-1)
 
     nabv_tang = (
-        u_vert_e2c2v[:, 0] * primal_normal_vert_v1[:, 0]
-        + v_vert_e2c2v[:, 0] * primal_normal_vert_v2[:, 0]
+        u_vert_e2c2v[:, 0] * pnv1[:, 0] + v_vert_e2c2v[:, 0] * pnv2[:, 0]
     ) + (
-        u_vert_e2c2v[:, 1] * primal_normal_vert_v1[:, 1]
-        + v_vert_e2c2v[:, 1] * primal_normal_vert_v2[:, 1]
+        u_vert_e2c2v[:, 1] * pnv1[:, 1] + v_vert_e2c2v[:, 1] * pnv2[:, 1]
     )
     nabv_norm = (
-        u_vert_e2c2v[:, 2] * primal_normal_vert_v1[:, 2]
-        + v_vert_e2c2v[:, 2] * primal_normal_vert_v2[:, 2]
+        u_vert_e2c2v[:, 2] * pnv1[:, 2] + v_vert_e2c2v[:, 2] * pnv2[:, 2]
     ) + (
-        u_vert_e2c2v[:, 3] * primal_normal_vert_v1[:, 3]
-        + v_vert_e2c2v[:, 3] * primal_normal_vert_v2[:, 3]
+        u_vert_e2c2v[:, 3] * pnv1[:, 3] + v_vert_e2c2v[:, 3] * pnv2[:, 3]
     )
-    z_nabla4_e2 = 4.0 * (
-        (nabv_norm - 2.0 * z_nabla2_e) * inv_vert_vert_length**2
-        + (nabv_tang - 2.0 * z_nabla2_e) * inv_primal_edge_length**2
+    result = 4.0 * (
+        (nabv_norm - 2.0 * z_nabla2_e) * ivvl**2
+        + (nabv_tang - 2.0 * z_nabla2_e) * ipel**2
     )
+    z_nabla4_e2[horizontal_start:horizontal_end, :] = result[horizontal_start:horizontal_end, :]
     return z_nabla4_e2
 
 
@@ -85,6 +87,7 @@ class TestCalculateNabla4(StencilTest):
         z_nabla2_e: np.ndarray,
         inv_vert_vert_length: np.ndarray,
         inv_primal_edge_length: np.ndarray,
+        z_nabla4_e2: np.ndarray,
         **kwargs,
     ) -> dict:
         z_nabla4_e2 = calculate_nabla4_numpy(
@@ -96,6 +99,9 @@ class TestCalculateNabla4(StencilTest):
             z_nabla2_e,
             inv_vert_vert_length,
             inv_primal_edge_length,
+            z_nabla4_e2=z_nabla4_e2,
+            horizontal_start=kwargs["horizontal_start"],
+            horizontal_end=kwargs["horizontal_end"],
         )
         return dict(z_nabla4_e2=z_nabla4_e2)
 
@@ -116,6 +122,7 @@ class TestCalculateNabla4(StencilTest):
         inv_primal_edge_length = data_alloc.random_field(grid, dims.EdgeDim, dtype=ta.wpfloat)
 
         z_nabla4_e2 = data_alloc.zero_field(grid, dims.EdgeDim, dims.KDim, dtype=ta.vpfloat)
+        # TODO add horizontal_start with lateral 2
 
         return dict(
             u_vert=u_vert,
@@ -126,8 +133,8 @@ class TestCalculateNabla4(StencilTest):
             inv_vert_vert_length=inv_vert_vert_length,
             inv_primal_edge_length=inv_primal_edge_length,
             z_nabla4_e2=z_nabla4_e2,
-            horizontal_start=0,
-            horizontal_end=gtx.int32(grid.num_edges),
+            horizontal_start=grid.start_index(h_grid.domain(dims.EdgeDim)(h_grid.Zone.LATERAL_BOUNDARY_LEVEL_2)),
+            horizontal_end=grid.end_index(h_grid.domain(dims.EdgeDim)(h_grid.Zone.LOCAL)),
             vertical_start=0,
             vertical_end=gtx.int32(grid.num_levels),
         )

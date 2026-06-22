@@ -16,7 +16,7 @@ from icon4py.model.atmosphere.dycore.stencils.spatially_average_flux_or_velocity
     spatially_average_flux_or_velocity,
 )
 from icon4py.model.common import dimension as dims
-from icon4py.model.common.grid import base
+from icon4py.model.common.grid import base, horizontal as h_grid
 from icon4py.model.common.states import utils as state_utils
 from icon4py.model.common.type_alias import wpfloat
 from icon4py.model.common.utils.data_allocation import random_field, zero_field
@@ -27,11 +27,18 @@ def spatially_average_flux_or_velocity_numpy(
     connectivities: dict[gtx.Dimension, np.ndarray],
     e_flx_avg: np.ndarray,
     flux_or_velocity: np.ndarray,
+    spatially_averaged_flux_or_velocity: np.ndarray,
+    horizontal_start: int,
+    horizontal_end: int,
+    **kwargs,
 ) -> np.ndarray:
     e2c2eO = connectivities[dims.E2C2EODim]
-    e_flx_avg = np.expand_dims(e_flx_avg, axis=-1)
-    spatially_averaged_flux_or_velocity = np.sum(flux_or_velocity[e2c2eO] * e_flx_avg, axis=1)
-
+    e_flx_avg_exp = np.expand_dims(e_flx_avg, axis=-1)
+    spatially_averaged_flux_or_velocity[horizontal_start:horizontal_end, :] = np.sum(
+        flux_or_velocity[e2c2eO[horizontal_start:horizontal_end]]
+        * e_flx_avg_exp[horizontal_start:horizontal_end],
+        axis=1,
+    )
     return spatially_averaged_flux_or_velocity
 
 
@@ -45,12 +52,16 @@ class TestSpatiallyAverageFluxOrVelocity(StencilTest):
         connectivities: dict[gtx.Dimension, np.ndarray],
         e_flx_avg: np.ndarray,
         flux_or_velocity: np.ndarray,
+        spatially_averaged_flux_or_velocity: np.ndarray,
+        horizontal_start: int,
+        horizontal_end: int,
         **kwargs: Any,
     ) -> dict:
         spatially_averaged_flux_or_velocity = spatially_average_flux_or_velocity_numpy(
-            connectivities, e_flx_avg, flux_or_velocity
+            connectivities, e_flx_avg, flux_or_velocity,
+            spatially_averaged_flux_or_velocity=spatially_averaged_flux_or_velocity,
+            horizontal_start=horizontal_start, horizontal_end=horizontal_end,
         )
-
         return dict(spatially_averaged_flux_or_velocity=spatially_averaged_flux_or_velocity)
 
     @pytest.fixture
@@ -65,8 +76,8 @@ class TestSpatiallyAverageFluxOrVelocity(StencilTest):
             e_flx_avg=e_flx_avg,
             flux_or_velocity=flux_or_velocity,
             spatially_averaged_flux_or_velocity=spatially_averaged_flux_or_velocity,
-            horizontal_start=0,
-            horizontal_end=gtx.int32(grid.num_edges),
+            horizontal_start=grid.start_index(h_grid.domain(dims.EdgeDim)(h_grid.Zone.LATERAL_BOUNDARY_LEVEL_2)),
+            horizontal_end=grid.end_index(h_grid.domain(dims.EdgeDim)(h_grid.Zone.LOCAL)),
             vertical_start=0,
             vertical_end=gtx.int32(grid.num_levels),
         )

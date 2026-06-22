@@ -70,7 +70,11 @@ def compute_diagnostics_from_normal_wind_numpy(
 
     tangential_wind = np.where(
         k_nlev >= vertical_start,
-        compute_tangential_wind_numpy(connectivities, vn, rbf_vec_coeff_e),
+        compute_tangential_wind_numpy(
+            connectivities, vn, rbf_vec_coeff_e,
+            vt=np.zeros_like(tangential_wind),
+            horizontal_start=0, horizontal_end=vn.shape[0],
+        ),
         tangential_wind,
     )
 

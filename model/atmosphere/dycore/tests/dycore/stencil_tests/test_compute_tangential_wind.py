@@ -13,7 +13,7 @@ import pytest
 
 from icon4py.model.atmosphere.dycore.stencils.compute_tangential_wind import compute_tangential_wind
 from icon4py.model.common import dimension as dims
-from icon4py.model.common.grid import base
+from icon4py.model.common.grid import base, horizontal as h_grid
 from icon4py.model.common.states import utils as state_utils
 from icon4py.model.common.type_alias import vpfloat, wpfloat
 from icon4py.model.common.utils.data_allocation import random_field, zero_field
@@ -21,11 +21,24 @@ from icon4py.model.testing.stencil_tests import StencilTest
 
 
 def compute_tangential_wind_numpy(
-    connectivities: dict[gtx.Dimension, np.ndarray], vn: np.ndarray, rbf_vec_coeff_e: np.ndarray
+    connectivities: dict[gtx.Dimension, np.ndarray],
+    vn: np.ndarray,
+    rbf_vec_coeff_e: np.ndarray,
+    vt: np.ndarray,
+    horizontal_start: int,
+    horizontal_end: int,
+    **kwargs,
 ) -> np.ndarray:
     rbf_vec_coeff_e = np.expand_dims(rbf_vec_coeff_e, axis=-1)
     e2c2e = connectivities[dims.E2C2EDim]
-    vt = np.sum(np.where((e2c2e != -1)[:, :, np.newaxis], vn[e2c2e] * rbf_vec_coeff_e, 0), axis=1)
+    vt[horizontal_start:horizontal_end, :] = np.sum(
+        np.where(
+            (e2c2e != -1)[horizontal_start:horizontal_end, :, np.newaxis],
+            vn[e2c2e[horizontal_start:horizontal_end]] * rbf_vec_coeff_e[horizontal_start:horizontal_end],
+            0,
+        ),
+        axis=1,
+    )
     return vt
 
 
@@ -39,9 +52,15 @@ class TestComputeTangentialWind(StencilTest):
         connectivities: dict[gtx.Dimension, np.ndarray],
         vn: np.ndarray,
         rbf_vec_coeff_e: np.ndarray,
+        vt: np.ndarray,
+        horizontal_start: int,
+        horizontal_end: int,
         **kwargs: Any,
     ) -> dict:
-        vt = compute_tangential_wind_numpy(connectivities, vn, rbf_vec_coeff_e)
+        vt = compute_tangential_wind_numpy(
+            connectivities, vn, rbf_vec_coeff_e, vt=vt,
+            horizontal_start=horizontal_start, horizontal_end=horizontal_end,
+        )
         return dict(vt=vt)
 
     @pytest.fixture
@@ -50,12 +69,16 @@ class TestComputeTangentialWind(StencilTest):
         rbf_vec_coeff_e = random_field(grid, dims.EdgeDim, dims.E2C2EDim, dtype=wpfloat)
         vt = zero_field(grid, dims.EdgeDim, dims.KDim, dtype=vpfloat)
 
+        edge_domain = h_grid.domain(dims.EdgeDim)
+        horizontal_start = grid.start_index(edge_domain(h_grid.Zone.LATERAL_BOUNDARY_LEVEL_2))
+        horizontal_end = grid.end_index(edge_domain(h_grid.Zone.LOCAL))
+
         return dict(
             vn=vn,
             rbf_vec_coeff_e=rbf_vec_coeff_e,
             vt=vt,
-            horizontal_start=0,
-            horizontal_end=gtx.int32(grid.num_edges),
+            horizontal_start=horizontal_start,
+            horizontal_end=horizontal_end,
             vertical_start=0,
             vertical_end=gtx.int32(grid.num_levels),
         )

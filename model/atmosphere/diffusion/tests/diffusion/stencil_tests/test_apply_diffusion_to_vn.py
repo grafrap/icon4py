@@ -83,6 +83,9 @@ class TestApplyDiffusionToVn(StencilTest):
             z_nabla2_e,
             inv_vert_vert_length,
             inv_primal_edge_length,
+            z_nabla4_e2=np.zeros_like(z_nabla2_e),
+            horizontal_start=0,
+            horizontal_end=z_nabla2_e.shape[0],
         )
 
         condition = start_2nd_nudge_line_idx_e <= edge[:, np.newaxis]

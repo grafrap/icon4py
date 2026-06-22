@@ -15,7 +15,7 @@ from icon4py.model.atmosphere.diffusion.stencils.enhance_diffusion_coefficient_f
     enhance_diffusion_coefficient_for_grid_point_cold_pools,
 )
 from icon4py.model.common import dimension as dims
-from icon4py.model.common.grid import base
+from icon4py.model.common.grid import base, horizontal as h_grid
 from icon4py.model.common.type_alias import vpfloat
 from icon4py.model.common.utils.data_allocation import random_field
 from icon4py.model.testing.stencil_tests import StencilTest
@@ -30,13 +30,19 @@ class TestEnhanceDiffusionCoefficientForGridPointColdPools(StencilTest):
         connectivities: dict[gtx.Dimension, np.ndarray],
         kh_smag_e: np.ndarray,
         enh_diffu_3d: np.ndarray,
+        horizontal_start: int,
+        horizontal_end: int,
         **kwargs,
     ) -> dict:
         e2c = connectivities[dims.E2CDim]
-        kh_smag_e = np.maximum(
-            kh_smag_e,
+        kh_smag_e[horizontal_start:horizontal_end, :] = np.maximum(
+            kh_smag_e[horizontal_start:horizontal_end, :],
             np.max(
-                np.where((e2c != -1)[:, :, np.newaxis], enh_diffu_3d[e2c], -math.inf),
+                np.where(
+                    (e2c != -1)[horizontal_start:horizontal_end, :, np.newaxis],
+                    enh_diffu_3d[e2c[horizontal_start:horizontal_end]],
+                    -math.inf,
+                ),
                 axis=1,
             ),
         )
@@ -46,12 +52,15 @@ class TestEnhanceDiffusionCoefficientForGridPointColdPools(StencilTest):
     def input_data(self, grid: base.Grid) -> dict:
         kh_smag_e = random_field(grid, dims.EdgeDim, dims.KDim, dtype=vpfloat)
         enh_diffu_3d = random_field(grid, dims.CellDim, dims.KDim, dtype=vpfloat)
+        edge_domain = h_grid.domain(dims.EdgeDim)
+        horizontal_start = grid.start_index(edge_domain(h_grid.Zone.LATERAL_BOUNDARY_LEVEL_2))
+        horizontal_end = grid.end_index(edge_domain(h_grid.Zone.LOCAL))
 
         return dict(
             kh_smag_e=kh_smag_e,
             enh_diffu_3d=enh_diffu_3d,
-            horizontal_start=0,
-            horizontal_end=gtx.int32(grid.num_edges),
+            horizontal_start=horizontal_start,
+            horizontal_end=horizontal_end,
             vertical_start=0,
             vertical_end=gtx.int32(grid.num_levels),
         )

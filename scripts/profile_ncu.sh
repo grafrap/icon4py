@@ -16,6 +16,8 @@ WORKDIR=/capstor/scratch/cscs/rgraf/icon4py
 GRID=/capstor/scratch/cscs/rgraf/grid_generator/parallelogram_grid_516.nc
 K_LEVELS=50
 NCU_OUT="${WORKDIR}/ncu_out.ncu-rep"
+# Set PROFILE_STENCIL=rbf_nabla4 (default) or rbf_nabla4_direct to switch target
+PROFILE_STENCIL=${PROFILE_STENCIL:-rbf_nabla4}
 
 cd "${WORKDIR}"
 mkdir -p slurm
@@ -40,9 +42,19 @@ export GT4PY_BACKEND_DEVICE_TYPE=cuda
 export GT4PY_BUILD_CACHE_DIR="${WORKDIR}"
 export GT4PY_BUILD_CACHE_LIFETIME=persistent
 export GT4PY_TRANSLATOR_MESH="${GRID}"
+export GT4PY_ENABLE_CSI=1
 export USE_STRUCTURED_BACKEND=1
 export PYTHONOPTIMIZE=1
 export OMP_NUM_THREADS=1
+# Override experiment config via env vars before sbatch if needed.
+# Example: DACE_OPT_EXPERIMENT=FD DACE_UNIT_STRIDES_DIMS=IDim,JDim sbatch scripts/profile_ncu.sh
+export DACE_OPT_EXPERIMENT=${DACE_OPT_EXPERIMENT:-FD}
+export DACE_UNIT_STRIDES_DIMS=${DACE_UNIT_STRIDES_DIMS:-IDim}
+# Add -lineinfo so NCU can map metrics back to CUDA source lines.
+# DaCe reads DACE_compiler_cuda_args and appends them to every nvcc invocation.
+export DACE_compiler_cuda_args="-lineinfo"
+# Clear persistent OTF cache so the warm-up recompiles with the config above.
+rm -rf "${WORKDIR}/.gt4py_cache"
 export MPICH_GPU_SUPPORT_ENABLED=1
 export CUPY_CUDA_PER_THREAD_DEFAULT_STREAM=1
 export CUDA_DEVICE_ORDER=PCI_BUS_ID
@@ -56,37 +68,38 @@ UENV_CMAKE_DIR=$(dirname "$(which cmake 2>/dev/null)")
 source "${WORKDIR}/.venv/bin/activate"
 [ -n "$UENV_CMAKE_DIR" ] && export PATH="${UENV_CMAKE_DIR}:${PATH}"
 
-echo "=== NCU profiling: rbf_nabla4 structured, grid=${GRID}, K=${K_LEVELS} ==="
+TEST_FILE="model/atmosphere/diffusion/tests/diffusion/stencil_tests/test_${PROFILE_STENCIL}.py"
+echo "=== NCU profiling: ${PROFILE_STENCIL} structured, grid=${GRID}, K=${K_LEVELS} ==="
+echo "=== OPT_EXPERIMENT=${DACE_OPT_EXPERIMENT}  UNIT_STRIDES_DIMS=${DACE_UNIT_STRIDES_DIMS} ==="
 echo "Report will be written to: ${NCU_OUT}"
 
 # --- First pass: run without ncu to compile and warm up the cache ---
 echo "=== Warm-up run (compile + cache) ==="
 VENV_PYTHON="${WORKDIR}/.venv/bin/python3"
 "${VENV_PYTHON}" -m pytest -q \
-    model/atmosphere/diffusion/tests/diffusion/stencil_tests/test_rbf_nabla4.py \
+    "${TEST_FILE}" \
     --backend=dace_gpu \
     --grid "${GRID}:${K_LEVELS}" \
     --maxfail=1 -s 2>&1 | tail -20
 
 # --- Second pass: ncu profile (kernels already compiled, no JIT overhead) ---
 # Use sections instead of raw metric names: sections are architecture-aware and
-# resolve the correct counter names for CC 9.0 (GH200/Hopper) automatically.
+# resolves the correct counter names for CC 9.0 (GH200/Hopper) automatically.
 echo "=== NCU profiling pass ==="
-
 ncu \
-    --section MemoryWorkloadAnalysis \
-    --section ComputeWorkloadAnalysis \
-    --section Occupancy \
-    --kernel-name "regex:map_2[23]_fieldop" \
+    -f \
+    --set full \
+    --kernel-name "regex:map_" \
     --launch-skip 0 \
     --launch-count 3 \
     --target-processes all \
     --export "${NCU_OUT}" \
     "${VENV_PYTHON}" -m pytest -q \
-        model/atmosphere/diffusion/tests/diffusion/stencil_tests/test_rbf_nabla4.py \
+        "${TEST_FILE}" \
         --backend=dace_gpu \
         --grid "${GRID}:${K_LEVELS}" \
         --maxfail=1 -s 2>&1 | tee "${WORKDIR}/ncu_stdout.txt"
 
 echo "=== NCU done. Import with: ==="
 echo "  ncu --import ${NCU_OUT} --page details"
+echo "  ncu --import ${NCU_OUT} --csv --page source   # per-line source counters"

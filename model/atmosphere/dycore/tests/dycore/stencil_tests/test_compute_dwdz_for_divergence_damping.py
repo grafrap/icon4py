@@ -13,6 +13,7 @@ import pytest
 
 from icon4py.model.atmosphere.dycore.stencils.compute_dwdz_for_divergence_damping import (
     _compute_dwdz_for_divergence_damping,
+    compute_dwdz_for_divergence_damping,
 )
 from icon4py.model.common import dimension as dims
 from icon4py.model.common.grid import base
@@ -34,8 +35,8 @@ def compute_dwdz_for_divergence_damping_numpy(
 
 
 class TestComputeDwdzForDivergenceDamping(StencilTest):
-    PROGRAM = _compute_dwdz_for_divergence_damping
-    OUTPUTS = ("out",)
+    PROGRAM = compute_dwdz_for_divergence_damping
+    OUTPUTS = ("z_dwdz_dd",)
 
     @staticmethod
     def reference(
@@ -48,7 +49,7 @@ class TestComputeDwdzForDivergenceDamping(StencilTest):
         z_dwdz_dd = compute_dwdz_for_divergence_damping_numpy(
             connectivities, inv_ddqz_z_full=inv_ddqz_z_full, w=w, w_concorr_c=w_concorr_c
         )
-        return dict(out=z_dwdz_dd)
+        return dict(z_dwdz_dd=z_dwdz_dd)
 
     @pytest.fixture
     def input_data(self, grid: base.Grid) -> dict[str, Any]:
@@ -63,9 +64,9 @@ class TestComputeDwdzForDivergenceDamping(StencilTest):
             inv_ddqz_z_full=inv_ddqz_z_full,
             w=w,
             w_concorr_c=w_concorr_c,
-            out=z_dwdz_dd,
-            domain={
-                dims.CellDim: (0, gtx.int32(grid.num_cells)),
-                dims.KDim: (0, gtx.int32(grid.num_levels)),
-            },
+            z_dwdz_dd=z_dwdz_dd,
+            horizontal_start=gtx.int32(0),
+            horizontal_end=gtx.int32(grid.num_cells),
+            vertical_start=gtx.int32(0),
+            vertical_end=gtx.int32(grid.num_levels),
         )

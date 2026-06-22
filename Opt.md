@@ -875,19 +875,67 @@ See `cuda_comparison/COMPARISON.md` for the full side-by-side analysis.
 | csi_seqK_F_maxnreg62 | FR | `MAXNREG=62` + `SEQUENTIAL_K=1` | Closest to reference structure |
 | unstruct | — (USE_STRUCTURED_BACKEND=0) | — | Unstructured baseline |
 
-## Results (to be filled when job 933329 completes)
+## Structural findings from CUDA analysis (other cluster, pre-Opt10)
 
-| Config | Median | vs Unstructured (0.845 ms) |
+See `cuda_comparison/COMPARISON.md` for full details. Key results:
+
+- **FD == F** (cuda1 == cuda2): D-blocking is a **no-op** for this vertex stencil. JDim blocking doesn't create an inner sequential loop here — the gridDim stays at `(16,7,509)` with one J-block per thread.
+- **FDR == FR** (cuda4 == cuda5): same no-op conclusion for maxnreg experiments
+- **416 gtir_tmp** in ALL variants — CSI expansion alone (not D-blocking)
+- **seqK (cuda7) is structurally broken** for vertex stencils: Kolor=[0,1) but seqK puts Kolor in threadIdx.y (8 slots) → 87.5% idle threads. K-independent loads also NOT hoisted before sequential K-loop.
+- **maxnreg(62)** provides 62 regs/thread (vs lb21's 128 regs) — worse than lb21 for 416-var kernel. **maxnreg(128)** matches lb21's budget without occupancy constraint → potentially marginal improvement.
+
+## Results (GT4Py Timer medians, 30 runs each)
+
+### Santis cluster (A100, post-Opt10 DaCe)
+
+| Config | Median | vs Unstructured | Notes |
+|---|---|---|---|
+| **csi_FD_lb21** | **0.656 ms** | **−22.5%** | Previous best (Opt 11) — confirmed |
+| csi_F_lb21 | 0.655 ms | −22.7% | **Identical kernel** (FD==F confirmed) |
+| csi_FD_lb10 | 0.965 ms | +14.0% | Worse — compiler picks lower occupancy |
+| csi_FD_maxnreg62 | 1.009 ms | +19.1% | Worse — 62 regs too few for 416-var kernel |
+| csi_F_maxnreg62 | 1.010 ms | +19.2% | **Identical to #4** (FDR==FR confirmed) |
+| **csi_F_maxnreg128** | **0.655 ms** | **−22.6%** | **Ties lb21** — same effective budget |
+| csi_seqK_F_lb21 | 1.141 ms | +34.7% | 87.5% Kolor thread waste + no LICM |
+| csi_seqK_F_maxnreg62 | 2.677 ms | +216% | seqK waste + extreme spill |
+| **unstruct (baseline)** | **0.847 ms** | baseline | |
+
+### Other GPU cluster (pre-Opt10 DaCe, ~63% slower GPU)
+
+| Config | Median | vs Unstructured |
 |---|---|---|
-| csi_FD_lb21 (previous best) | TBD | TBD |
-| csi_F_lb21 | TBD | TBD |
-| csi_FD_lb10 | TBD | TBD |
-| csi_FD_maxnreg62 | TBD | TBD |
-| csi_F_maxnreg62 | TBD | TBD |
-| csi_F_maxnreg128 | TBD | TBD |
-| csi_seqK_F_lb21 | TBD | TBD |
-| csi_seqK_F_maxnreg62 | TBD | TBD |
-| unstruct | TBD | baseline |
+| csi_FD_lb21 / csi_F_lb21 | 1.088 ms | −27.1% |
+| csi_F_maxnreg128 | 1.088 ms | −27.1% |
+| csi_FD_lb10 | 1.649 ms | +10.5% |
+| csi_FD_maxnreg62 / csi_F_maxnreg62 | 1.753 ms | +17.5% |
+| csi_seqK_F_lb21 | 1.983 ms | +32.9% |
+| csi_seqK_F_maxnreg62 | 5.512 ms | +269% |
+| unstruct | 1.492 ms | baseline |
+
+## Key Findings
+
+1. **lb21 = maxnreg(128)**: Both achieve −27% vs unstructured. The compiler at 128 max regs naturally
+   selects ≥2 blocks/SM occupancy, so the explicit `min_blocks=2` in lb21 is redundant for this kernel.
+   Either can be used; lb21 is more predictable.
+
+2. **lb10 is worse than lb21**: Without `min_blocks=2`, the compiler picks lower occupancy (possibly 1 block/SM
+   or higher regs that don't help), resulting in 52% slower than lb21.
+
+3. **maxnreg(62) is significantly worse**: 62 regs/thread → more spill than lb21's 128 regs. For a 416-var
+   kernel, the register budget matters more than removing the occupancy constraint. Colleague's tip confirmed
+   not beneficial here.
+
+4. **seqK is harmful for single-Kolor vertex stencils**: The seqK pass moves K out of the GPU grid and puts
+   Kolor into threadIdx.y (8 threads). Since Kolor=[0,1) has only 1 valid value, 7/8 threads are idle.
+   Additionally, K-independent reads (primal_normal, inv_*) are NOT hoisted before the K-loop → re-read 50×.
+
+5. **D-blocking is a no-op**: FD==F and FDR==FR produce identical kernels (0-diff). D-blocking
+   (`blocking_dim=JDim`) has no effect on this vertex stencil's GPU grid or variable count.
+
+**Conclusion**: lb21 (`__launch_bounds__(256, 2)`) remains optimal. No improvement found from maxnreg or seqK.
+The 416 gtir_tmp register spill is the fundamental bottleneck — addressing it would require DaCe-level CSE
+or a restructured IR that materializes z_nabla4_e2[6] as an explicit intermediate.
 
 ## Files Created
 
@@ -896,3 +944,167 @@ See `cuda_comparison/COMPARISON.md` for the full side-by-side analysis.
 | `commands_stencils_nabla_csi_sweep.txt` | 8-experiment sweep command file |
 | `cuda_comparison/rbf_nabla4_existing_cache.cu` | Saved DaCe kernel from cache (CSI+FD+lb21, Jun 16 2026) |
 | `cuda_comparison/COMPARISON.md` | Full structural comparison: DaCe kernel vs reference `gpu_kloop` |
+
+---
+
+# Optimization 13: CSI Let-Bindings — Share nabla4 Intermediate Between Tuple Outputs
+
+## Root Cause
+
+The CSI-fused `rbf_nabla4` kernel has **416 `gtir_tmp_N` double variables** (vs ~78 in the
+reference). The main contributor: the 6 nabla4 sub-expressions (one per V2E edge) are each
+computed TWICE — once in the u_vert_out sum and once in the v_vert_out sum. This gives
+2 × 6 × ~20 sub-expression nodes = ~240 variables just for nabla4, instead of the 6 × ~20 = 120
+that sharing would give. The reference kernel avoids this via `z_nabla4_e2_wp[6]`, computed once
+and reused for both outputs.
+
+Confirmed from IR analysis (ir_out.txt lines 3288–3388): the SAME nabla4 expressions appear
+identically in both the u_out and v_out sections of the CSI lambda body.
+
+## Fix: Let-Bindings in `_try_inline_intermediate`
+
+**File**: `../gt4py/src/gt4py/next/iterator/transforms/structured_backend_passes.py`
+
+When `len(all_shifts) > len(unique_outer_shifts)` (i.e. some intermediate shifts appear more
+than once in the outer body — the tuple-output case), `_try_inline_intermediate` now:
+
+1. Creates `__csi_inner_k` SymRef placeholders for each unique shift
+2. Substitutes with SymRefs (not full expressions) in the outer body
+3. Wraps the body in nested let-bindings: `(λ(__csi_inner_k) → …)(nabla4_k_expr)` for each k
+
+DaCe's `visit_FunCall` in `gtir_dataflow.py` already handles `cpm.is_let` nodes by computing
+each argument ONCE into a shared transient and mapping the param to that transient in
+`symbol_map` — so both u_out and v_out use the same scalar transient, not duplicated reads.
+
+`InlineLambdas(opcount_preserving=True)` preserves the let-bindings since each `__csi_inner_k`
+is used in ≥2 places (u_out and v_out). The DaCe pipeline has no post-CSI InlineLambdas anyway.
+
+Single-output stencils: `len(all_shifts) == len(unique_outer_shifts)` → else branch (no change).
+
+## Expected Impact (pending benchmark)
+
+| Metric | Before | After |
+|---|---|---|
+| `gtir_tmp_N` doubles | ~416 | ~250–280 |
+| nabla4 sub-expressions | 6 × ~20 × 2 = ~240 | 6 × ~20 = ~120 |
+| u_vert global reads | 48 (7 unique × ~7×) | ~24 (7 unique × ~3×) |
+| Spill with lb21 (128 regs) | ~352 | ~180–210 |
+| Kernel count | 1 | 1 (unchanged) |
+
+## Files Changed
+
+| File | Change |
+|---|---|
+| `../gt4py/src/gt4py/next/iterator/transforms/structured_backend_passes.py` | `_try_inline_intermediate`: conditional let-binding when sharing occurs |
+| `../gt4py/tests/.../test_composed_shift_inliner.py` | `TestLetBindingForTupleOutput`: 6 new tests verifying let-binding structure |
+
+## Verification Command
+
+```bash
+# After submitting to cluster:
+export PYTHONOPTIMIZE=1 && export USE_STRUCTURED_BACKEND=1 && export OMP_NUM_THREADS=1 \
+  && export GT4PY_TRANSLATOR_MESH=.../parallelogram_grid_512.nc \
+  && export DACE_OPT_EXPERIMENT=FD && export GT4PY_ENABLE_CSI=1 \
+  && export DACE_GPU_LAUNCH_BOUNDS="256, 2" \
+  && pytest -q test_rbf_nabla4.py --backend=dace_gpu --grid .../512.nc:50 --maxfail=1 -s
+# Check: grep -c "double gtir_tmp_" <kernel>.cu  → should be ~250-280 (was 416)
+# Check: grep -c "double __tlet_arg0 = u_vert\[" <kernel>.cu → should be ~24 (was 48)
+```
+
+---
+
+# Investigation: opcount_preserving=False at pass_manager.py line 558
+
+## What the opcount_preserving does
+
+`InlineLambdas(opcount_preserving=False, force_inline_lambda_args=True)` at line 558 of
+`apply_common_transforms` is a **destructive flatten** pass that inlines ALL lambda-application
+let-bindings, even those where params are used ≥2 times. This is required for BOTH the GTFN
+and DaCe backends (neither can handle remaining `_cs_*` let-bindings in the output IR).
+
+## Why it is needed
+
+After the fusion loop (lines ~471–509) and CSI (line 523), CSE at line 526 extracts repeated
+subexpressions INSIDE `as_fieldop` stencil bodies as `_cs_*` let-bindings with ref_count ≥ 2.
+These include:
+- `primal_normal_vert_v1_*` — `list_get(n, deref(shift(k)(sparse_param)))` results reused across V2E edges
+- `_cs_N` — arithmetic sub-expressions appearing in both u_out and v_out nabla4 terms
+
+`InlineLambdas(opcount_preserving=True)` at line 530 preserves them. Then line 558 destroys
+them. Without line 558, both GTFN and DaCe fail (DaCe: 98.4% mismatch).
+
+## Why DaCe fails with preserved _cs_* lets
+
+The DaCe `is_let` handler (gtir_dataflow.py line 1955) handles simple scalar lets correctly
+(proven by `repro_dace_let.py` reproducer). The issue is specific to the `list_get`-derived
+lets (`primal_normal_vert_v1_` etc.). When `_visit_list_get` creates a `ValueExpr` for a sparse
+field slot, using that `ValueExpr` multiple times in a let-binding context likely causes issues
+in the DaCe SDFG (wrong connections or wrong data flow for the list-type transient).
+
+## The fundamental blocker
+
+All IR-level nabla4-sharing approaches are blocked by this constraint: any let-binding that
+survives to line 558 gets destroyed. Moving CSI after line 558 makes the let-bindings survive
+but still fails with 98.4% (likely infer_domain or SDFG construction issue for that placement).
+
+## Current approach: SDFG-level (gated, dead end)
+
+`gt_merge_identical_scalar_reads`: correctly identifies 28 (small grid) / 154 (512×512) redundant
+reads in the SDFG, but DaCe re-materializes during codegen → no variable count reduction →
++2.7% slower (0.674 vs 0.656 ms). Gated behind `GT4PY_ENABLE_MISR=1` (off by default).
+
+---
+
+# Optimization 14: Fix SeqK Dimension Ordering (I→J→Kolor, K sequential)
+
+## Problem
+
+`DACE_SEQUENTIAL_K=1` experiment was 85% slower (1.983ms vs 0.656ms) because
+`_sequentialize_k_dimension` stripped K from the GPU map but left Kolor in threadIdx.y=8 slots
+when Kolor=[0,1) has only 1 valid value → 87.5% thread waste.
+
+## Fix
+
+Changed default `DACE_UNIT_STRIDES_DIMS` from `"IDim"` to `"IDim,JDim,Kolor"` in
+`translation.py`. With `unit_strides_dim=["IDim","JDim","Kolor"]`, `gt_set_iteration_order`
+produces map param order `[K, Kolor, JDim, IDim]`. After seqK strips K:
+- IDim → threadIdx.x (32, warp) ✓
+- JDim → threadIdx.y (8) ✓
+- Kolor → threadIdx.z (1 for vertex, zero waste) ✓
+
+Matches reference kernel structure: block=(32,4,2), grid=(I/32,J/4,1), K sequential.
+
+## Results (job 938296, pending)
+
+| Config | Previous (broken ordering) | Expected (fixed ordering) |
+|---|---|---|
+| parallel-K baseline | 0.656 ms | ~0.656 ms (no regression) |
+| seqK + lb21 | 1.983 ms (+202%) | TBD |
+| seqK + maxnreg(62) | 2.677 ms (+307%) | TBD |
+| seqK + maxnreg(128) | N/A | TBD |
+
+## Complete Opt 14 Results (dimorder sweep, job 938296)
+
+| Config | Median | vs old parallel-K 0.656ms |
+|---|---|---|
+| parallel-K with IDim,JDim,Kolor ordering | 1.475ms | +124.9% **regression** |
+| **seqK + F + lb21, fixed ordering** | **0.685ms** | **+4.5%** |
+| seqK + F + maxnreg(62), fixed | 2.982ms | +354.5% |
+| **seqK + F + maxnreg(128), fixed** | **0.658ms** | **+0.4% ≈ ties!** |
+
+**Key findings:**
+- IDim,JDim,Kolor ordering is WRONG for parallel-K (K loses its efficient y-thread placement)
+- IDim,JDim,Kolor ordering with seqK ELIMINATES the 87.5% Kolor thread waste
+- **seqK+maxnreg128 = 0.658ms ≈ parallel-K lb21 = 0.656ms** — essentially tied!
+- seqK is now viable; with K-invariant hoisting (LICM) it could beat parallel-K
+
+**Implementation**: `translation.py` now auto-selects `unit_strides_dim`:
+- Default (parallel-K): `"IDim"` → params [JDim,Kolor,K,IDim]
+- With `DACE_SEQUENTIAL_K=1`: `"IDim,JDim,Kolor"` → params [K,Kolor,JDim,IDim], K stripped
+
+## New best configuration
+
+**seqK + maxnreg(128) + CSI** = 0.658ms = effectively same as parallel-K lb21 (0.656ms).
+SeqK opens the door to K-invariant hoisting (LICM) which would be the next optimization:
+with 50 K-levels, each thread loops 50 times over K-independent primal_normal/ptr_coeff
+reads → hoisting would save 49/50 = 98% of those reads from the K-loop.

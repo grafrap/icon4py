@@ -15,7 +15,7 @@ from icon4py.model.atmosphere.dycore.stencils.compute_hydrostatic_correction_ter
     compute_hydrostatic_correction_term,
 )
 from icon4py.model.common import dimension as dims, type_alias as ta
-from icon4py.model.common.grid import base
+from icon4py.model.common.grid import base, horizontal as h_grid
 from icon4py.model.common.states import utils as state_utils
 from icon4py.model.common.utils import data_allocation as data_alloc
 from icon4py.model.testing.stencil_tests import StandardStaticVariants, StencilTest
@@ -163,6 +163,10 @@ class TestComputeHydrostaticCorrectionTerm(StencilTest):
             dtype=ta.vpfloat,
         )
 
+        edge_domain = h_grid.domain(dims.EdgeDim)
+        horizontal_start = grid.start_index(edge_domain(h_grid.Zone.LATERAL_BOUNDARY_LEVEL_2))
+        horizontal_end = grid.end_index(edge_domain(h_grid.Zone.LOCAL))
+
         return dict(
             theta_v=theta_v,
             ikoffset=ikoffset,
@@ -172,8 +176,8 @@ class TestComputeHydrostaticCorrectionTerm(StencilTest):
             inv_ddqz_z_full=inv_ddqz_z_full,
             inv_dual_edge_length=inv_dual_edge_length,
             grav_o_cpd=grav_o_cpd,
-            horizontal_start=0,
-            horizontal_end=gtx.int32(grid.num_edges),
+            horizontal_start=horizontal_start,
+            horizontal_end=horizontal_end,
             vertical_start=gtx.int32(grid.num_levels - 1),
             vertical_end=gtx.int32(grid.num_levels),
         )

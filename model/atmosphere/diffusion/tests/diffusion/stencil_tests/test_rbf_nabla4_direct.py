@@ -18,7 +18,38 @@ from icon4py.model.common.type_alias import wpfloat
 from icon4py.model.common.utils import data_allocation as data_alloc
 from icon4py.model.testing.stencil_tests import StandardStaticVariants, StencilTest
 
-from .test_calculate_nabla4 import calculate_nabla4_numpy
+
+def _calculate_nabla4_full_numpy(
+    connectivities: dict[gtx.Dimension, np.ndarray],
+    u_vert: np.ndarray,
+    v_vert: np.ndarray,
+    primal_normal_vert_v1: np.ndarray,
+    primal_normal_vert_v2: np.ndarray,
+    z_nabla2_e: np.ndarray,
+    inv_vert_vert_length: np.ndarray,
+    inv_primal_edge_length: np.ndarray,
+) -> np.ndarray:
+    """Compute nabla4 over the full edge array (no horizontal clipping).
+    Used as an intermediate step before the vertex-level clip."""
+    e2c2v = connectivities[dims.E2C2VDim]
+    u_vert_e2c2v = u_vert[e2c2v]
+    v_vert_e2c2v = v_vert[e2c2v]
+
+    pnv1 = np.expand_dims(primal_normal_vert_v1, axis=-1)
+    pnv2 = np.expand_dims(primal_normal_vert_v2, axis=-1)
+    ivvl = np.expand_dims(inv_vert_vert_length, axis=-1)
+    ipel = np.expand_dims(inv_primal_edge_length, axis=-1)
+
+    nabv_tang = (
+        u_vert_e2c2v[:, 0] * pnv1[:, 0] + v_vert_e2c2v[:, 0] * pnv2[:, 0]
+    ) + (u_vert_e2c2v[:, 1] * pnv1[:, 1] + v_vert_e2c2v[:, 1] * pnv2[:, 1])
+    nabv_norm = (
+        u_vert_e2c2v[:, 2] * pnv1[:, 2] + v_vert_e2c2v[:, 2] * pnv2[:, 2]
+    ) + (u_vert_e2c2v[:, 3] * pnv1[:, 3] + v_vert_e2c2v[:, 3] * pnv2[:, 3])
+    return 4.0 * (
+        (nabv_norm - 2.0 * z_nabla2_e) * ivvl**2
+        + (nabv_tang - 2.0 * z_nabla2_e) * ipel**2
+    )
 
 
 def _mo_intp_rbf_vec_interpol_vertex_numpy(
@@ -102,7 +133,7 @@ class TestRBFNABLA4Direct(StencilTest):
         horizontal_end: int,
         **kwargs: Any,
     ) -> dict[str, np.ndarray]:
-        z_nabla4_e2 = calculate_nabla4_numpy(
+        z_nabla4_e2 = _calculate_nabla4_full_numpy(
             connectivities,
             u_vert,
             v_vert,

@@ -82,8 +82,11 @@ class TestComputeAveragedVnAndFluxesAndPrepareTracerAdvection(stencil_tests.Sten
         initial_substep_and_spatially_averaged_vn = substep_and_spatially_averaged_vn.copy()
         initial_substep_averaged_mass_flux = substep_averaged_mass_flux.copy()
 
-        spatially_averaged_vn = spatially_average_flux_or_velocity_numpy(
-            connectivities, e_flx_avg, vn
+        spatially_averaged_vn = np.zeros_like(vn)
+        spatially_average_flux_or_velocity_numpy(
+            connectivities, e_flx_avg, vn,
+            spatially_averaged_flux_or_velocity=spatially_averaged_vn,
+            horizontal_start=0, horizontal_end=vn.shape[0],
         )
 
         mass_flux_at_edges_on_model_levels, theta_v_flux_at_edges_on_model_levels = (

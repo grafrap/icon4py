@@ -13,6 +13,7 @@ import pytest
 
 from icon4py.model.atmosphere.dycore.stencils.compute_exner_from_rhotheta import (
     _compute_exner_from_rhotheta,
+    compute_exner_from_rhotheta,
 )
 from icon4py.model.common import dimension as dims
 from icon4py.model.common.grid import base
@@ -22,8 +23,8 @@ from icon4py.model.testing.stencil_tests import StencilTest
 
 
 class TestComputeExnerFromRhotheta(StencilTest):
-    PROGRAM = _compute_exner_from_rhotheta
-    OUTPUTS = ("out",)
+    PROGRAM = compute_exner_from_rhotheta
+    OUTPUTS = ("theta_v", "exner")
 
     @staticmethod
     def reference(
@@ -36,7 +37,7 @@ class TestComputeExnerFromRhotheta(StencilTest):
     ) -> dict:
         theta_v = np.copy(exner)
         exner = np.exp(rd_o_cvd * np.log(rd_o_p0ref * rho * theta_v))
-        return dict(out=(theta_v, exner))
+        return dict(theta_v=theta_v, exner=exner)
 
     @pytest.fixture
     def input_data(self, grid: base.Grid) -> dict[str, Any]:
@@ -48,12 +49,12 @@ class TestComputeExnerFromRhotheta(StencilTest):
 
         return dict(
             rho=rho,
+            theta_v=theta_v,
             exner=exner,
             rd_o_cvd=rd_o_cvd,
             rd_o_p0ref=rd_o_p0ref,
-            domain={
-                dims.CellDim: (0, gtx.int32(grid.num_cells)),
-                dims.KDim: (0, gtx.int32(grid.num_levels)),
-            },
-            out=(theta_v, exner),
+            horizontal_start=gtx.int32(0),
+            horizontal_end=gtx.int32(grid.num_cells),
+            vertical_start=gtx.int32(0),
+            vertical_end=gtx.int32(grid.num_levels),
         )

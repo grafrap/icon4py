@@ -25,6 +25,8 @@ def calculate_nabla2_for_z_numpy(
     inv_dual_edge_length: np.ndarray,
     theta_v: np.ndarray,
     z_nabla2_e: np.ndarray,
+    horizontal_start: int,
+    horizontal_end: int,
     **kwargs,
 ) -> np.ndarray:
     inv_dual_edge_length = np.expand_dims(inv_dual_edge_length, axis=-1)
@@ -32,7 +34,9 @@ def calculate_nabla2_for_z_numpy(
     theta_v_e2c = theta_v[connectivities[dims.E2CDim]]
     theta_v_weighted = theta_v_e2c[:, 1] - theta_v_e2c[:, 0]
 
-    z_nabla2_e = kh_smag_e * inv_dual_edge_length * theta_v_weighted
+    z_nabla2_e[horizontal_start:horizontal_end, :] = (
+        kh_smag_e * inv_dual_edge_length * theta_v_weighted
+    )[horizontal_start:horizontal_end, :]
 
     return z_nabla2_e
 
@@ -61,14 +65,17 @@ class TestCalculateNabla2ForZ(StencilTest):
         inv_dual_edge_length = random_field(grid, dims.EdgeDim, dtype=wpfloat)
         theta_v = random_field(grid, dims.CellDim, dims.KDim, dtype=wpfloat)
         z_nabla2_e = random_field(grid, dims.EdgeDim, dims.KDim, dtype=wpfloat)
+        edge_domain = h_grid.domain(dims.EdgeDim)
+        horizontal_start = grid.start_index(edge_domain(h_grid.Zone.LATERAL_BOUNDARY_LEVEL_2))
+        horizontal_end = grid.end_index(edge_domain(h_grid.Zone.LOCAL))
 
         return dict(
             kh_smag_e=kh_smag_e,
             inv_dual_edge_length=inv_dual_edge_length,
             theta_v=theta_v,
             z_nabla2_e=z_nabla2_e,
-            horizontal_start=0,
-            horizontal_end=gtx.int32(grid.num_edges),
+            horizontal_start=horizontal_start,
+            horizontal_end=horizontal_end,
             vertical_start=0,
             vertical_end=gtx.int32(grid.num_levels),
         )
