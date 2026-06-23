@@ -1308,3 +1308,218 @@ contiguous memory that may exceed register file capacity.
 | File | Change |
 |------|--------|
 | `../gt4py/.../transformations/licm_sequential_k.py` | Added `_hoist_per_element()` function; modified `_hoist_from_sequential_map()` to call it for n_elems > threshold instead of skipping |
+
+---
+
+# New-cluster results (2026-06-23): the seqK conclusion inverts; output fission
+
+All numbers above (Opt 1–17) were measured on the **old cluster**. Re-running the `rbf_nabla4`
+optimization sweep (`output/rbf_optsweep/`, 16 configs) on the **current cluster**
+(516×516 grid, K=50, `dace_gpu`) gives materially different conclusions. **All timings here are
+the GT4Py Timer Report median** (more exact than the `[timing] exec=` lines).
+
+## Sweep results (GT4Py Timer median, this cluster)
+
+| # | Config | median | vs unstruct |
+|---|--------|--------|-------------|
+| 05 | structured FDB lb21 (block 64×4×1) | **1.148 ms** | 0.78× (fastest) |
+| 03/04/06/07/08 | structured {FD, F, none, CSI-F, CSI-FD} lb21 | 1.157–1.158 ms | 0.79× |
+| 01 | **unstructured baseline** | 1.472 ms | 1.00× |
+| 09/12 | seqK {F, CSI-F} lb21 no-LICM | 1.641 ms | 1.11× |
+| 11/14 | seqK FR maxnreg128 LICM12 | 1.65 ms | 1.12× |
+| 10/13 | seqK {F, CSI-F} lb21 LICM12 | 1.749 ms | 1.19× |
+| 02 | structured FD **lb82** | 6.744 ms | 4.58× (slow) |
+| 15 | rbf_nabla4_direct FD lb82 *(ignored)* | 7.40 ms | — |
+| 16 | rbf_nabla4_direct FD lb21 *(ignored, no timer)* | — | — |
+
+### Cache → run mapping (`.gt4py_cache/`, by `__launch_bounds__` + mtime)
+
+| run | cache hash (prefix) | kernels | launch_bounds |
+|-----|---------------------|---------|---------------|
+| 01 unstruct | b22cb294 | 2 | (256) |
+| 02 FD lb82 | 406632048a | 1 | (256, 8) |
+| 03 FD lb21 | 2a6de0400b | 1 | (256, 2) |
+| 04 F lb21 | f71dab4ed7 | 1 | (256, 2) |
+| 05 FDB lb21 | 22830281 | 1 | (256, 2) |
+| 06 none lb21 | 2cfc100f | 1 | (256, 2) |
+| 07 CSI-F lb21 | 4ef46f53 | 1 | (256, 2) |
+| 08 CSI-FD lb21 | 4dff099a | 1 | (256, 2) |
+| 09 seqK F | b846999b | 1 | (256, 2) |
+| 10 seqK F LICM12 | 9b3b87d4 | 1 | (256, 2) |
+| 11 seqK FR maxnreg128 | 9a578b3c | 1 | (none → -maxrregcount) |
+| 12 seqK CSI-F | f1736207 | 1 | (256, 2) |
+| 13 seqK CSI-F LICM12 | c63fbad4 | 1 | (256, 2) |
+| 14 seqK CSI FR maxnreg128 | 510c910b | 1 | (none) |
+| 15 direct lb82 | direct_e43a9 | 1 | (256, 8) |
+| 16 direct lb21 | direct_e67c2 | 1 | (256, 2) |
+
+## Findings
+
+1. **Structured already beats unstructured** (1.148 vs 1.472 ms, 1.28×).
+2. **Launch bounds is the dominant lever**: lb82 → lb21 = **5.8× speedup**, a pure register-cap
+   effect (32 vs 128 regs/thread). Register spilling is the real bottleneck.
+3. **At lb21 every opt flag ties within ~1%** (FD/F/none/CSI/FDB-block all ≈1.157 ms) — the flags
+   (scan-unroll, JDim-block, CSI fusion, tasklet fuse) do not touch the register ceiling.
+4. **This cluster INVERTS Opt 14–17**: there seqK + per-element LICM was the winner
+   (0.633 vs 0.672 ms parallel-K). Here **seqK regresses** (1.64–1.75 ms vs 1.148 ms parallel-K) and
+   LICM makes seqK worse. The whole seqK + LICM line no longer applies on this GPU; the parallel-K
+   path wins decisively. (Absolute times also scaled ~1.7× vs the old cluster — different GPU.)
+5. **Coalescing is fine**: warp = `threadIdx.x` → IDim and `gt_change_strides` makes IDim stride-1
+   on GPU, so main field reads are coalesced. ncu's 11% "excessive" is the small K-invariant
+   connectivity/coefficient gathers (`primal_normal_vert`/`ptr_coeff` descriptor loads) — secondary.
+
+## Root cause: one fused register-heavy kernel
+
+`rbf_nabla4` is tuple-output (`out=(u_vert_out, v_vert_out)`). The final GTIR (confirmed in
+`ir_out_nabla4.txt`) is a **single** `as_fieldop` whose lambda returns a tuple —
+`{u_vert_out, v_vert_out} @ {dom, dom} ← as_fieldop(λ(p…) → make_tuple(u_body, v_body), dom)(args…)`
+— which DaCe lowers to **one** map `map_29_fieldop` with **1323 `double` temporaries / 1256
+multiplies** (both u and v fully unrolled, V2E×6 · E2C2V×4). That far exceeds the 255-register HW
+limit → spilling. lb21 (128 regs) only mitigates it. (The earlier guess that the IR was
+`make_tuple(as_fieldop_u, as_fieldop_v)` → two maps fused was wrong: it is one tuple-output
+as_fieldop, lowered directly to one map, so there is no fusion to prevent.)
+
+Read-count split in the generated `.cu`: **per-output (register-driving)** `primal_normal_vert_v1`
+418 reads (u-only), `primal_normal_vert_v2` 418 (v-only), `ptr_coeff_1/2` 93 each;
+**shared (cheap, cached)** `inv_primal_edge_length` 103, `inv_vert_vert_length` 103. So the
+register-driving work is per-output and the shared work is small → fission is the right lever.
+
+## Optimization: output fission
+
+**Goal**: split `u_vert_out` and `v_vert_out` into **two separate kernels**, halving the
+live-register footprint per kernel (the shared geometry reads are cheap, coalesced and L1-cached, so
+duplicating them is far cheaper than the spilling).
+
+- **SDFG-level `MapFission` (rejected)**: `MapFission.can_be_applied` matches (u/v *are* independent
+  components), but `apply()` crashes in DaCe `propagate_memlets_state` with a dimension mismatch on
+  the shared `inv_*` reads — the same structured-SDFG memlet-propagation fragility that forces
+  `disable_splitting=True`. Not viable.
+- **Output-aware anti-fusion alone (insufficient)**: refusing MapFusionHorizontal to merge
+  disjoint-output maps does nothing here, because the tuple as_fieldop lowers to **one** map — there
+  are never two maps to keep apart. (Confirmed: the first fission sweep still produced 1 kernel.)
+- **IR-level split + anti-fusion (chosen)**: a new GTIR pass `TupleOutputSetAtSplitter`
+  (`structured_backend_passes.py`) rewrites the single tuple-output SetAt into one single-output
+  SetAt per element — `out_i @ dom_i ← as_fieldop(λ(p…) → body_i, dom)(args…)` — so each output
+  lowers to its own map/kernel. It runs in `apply_common_transforms` right before the final
+  `infer_program` (which repopulates domain annexes) when `DACE_FISSION_OUTPUTS=1`. Each split lambda
+  keeps the full param/arg list; params unused by `body_i` are pruned by type inference / DCE in the
+  DaCe lowering. The **output-aware branch of `_kolor_aware_fusion_callback`** (`translation.py`) then
+  prevents DaCe from re-merging the two split maps (refuses fusing maps with disjoint non-transient
+  outputs). Both gated on `DACE_FISSION_OUTPUTS=1`, off by default.
+
+### Files changed
+
+| File | Change |
+|------|--------|
+| `../gt4py/.../iterator/transforms/structured_backend_passes.py` | New `TupleOutputSetAtSplitter` pass (split tuple-output SetAt → one single-output SetAt per element) |
+| `../gt4py/.../iterator/transforms/cart_unroll.py` | Re-export `TupleOutputSetAtSplitter` |
+| `../gt4py/.../iterator/transforms/pass_manager.py` | Call `TupleOutputSetAtSplitter` before the final `infer_program`, gated `USE_STRUCTURED_BACKEND` + `DACE_FISSION_OUTPUTS` |
+| `../gt4py/.../runners/dace/workflow/translation.py` | `_map_nontransient_output_arrays()` helper; `DACE_FISSION_OUTPUTS=1` output-aware refusal in `_kolor_aware_fusion_callback` (prevents re-fusion of split maps) |
+| `commands_stencils_rbf_fission.txt` | 4-row sweep: FUSED baseline vs FISSION at lb `256,2` / `256,1` / `0` |
+
+### Output-fission result: regression (dead end)
+
+The split worked (the tuple SetAt became two single-output SetAts → two kernels), but **u_vert_out
+and v_vert_out share the entire `z_nabla4_e2` computation** (they differ only in `ptr_coeff_1` vs
+`ptr_coeff_2`), so each kernel re-computes the shared work → **~2× runtime**. Per-output param/arg
+pruning helped but cannot remove the shared part. Output fission is the wrong cut for this stencil.
+The code (`TupleOutputSetAtSplitter` + output-aware `_kolor_aware_fusion_callback`) is left in,
+**gated off** (`DACE_FISSION_OUTPUTS`, default off) — it is valid for stencils whose outputs do not
+share work.
+
+### Materialization result: regression (dead end)
+
+Materializing the shared `z_nabla4_e2` as its own edge kernel (opt-in `GT4PY_MATERIALIZE_SHARED=1`,
+which makes `_arg_inline_predicate` in `fuse_as_fieldop.py` refuse to inline a producer read at >1
+shifted positions) is **correct but slower** (1.75 ms): `z_nabla4_e2` is a `[514,514,3,50]` ≈ **317 MB**
+edge field, and the global write+read round-trip costs more than the recompute it saves. Left gated
+off.
+
+---
+
+# Optimization 18 (2026-06-23): compile-time stride + origin baking — the actual win
+
+## Root cause (ncu roofline on the fused lb21 kernel)
+
+The fused `rbf_nabla4` kernel (`map_29_fieldop`, 1.157 ms) is **latency/occupancy-bound, NOT memory-
+or compute-bound**: SM throughput 38%, memory 54% (both <60% → ncu "latency issue"); **achieved
+occupancy 22% (theoretical 25%), limited to 128 registers/thread**; eligible warps/scheduler 0.78,
+61% of cycles with no eligible warp; `long_scoreboard` (global-load) stalls dominate. ncu estimated
+~46% headroom from raising occupancy.
+
+The lb sweep confirmed **lb21 (2 blocks/SM, 128 regs) is the spill-free sweet spot** (lb1=1.76 ms,
+lb3=1.33 ms, lb4=1.77 ms, lb82=6.74 ms): the kernel's live-register *need* is ~128, so fewer regs
+spill and more regs waste. The only way past 1.157 ms is to **reduce the register need** so a higher
+block count (occupancy) fits without spilling.
+
+The ncu Source view showed why registers are scarce: the structured backend passes **every field
+stride and field origin (`range_0`) as a runtime kernel argument**, so the compiler cannot prove the
+warp dim (IDim) is unit-stride. It emits **register-indirect gather loads** (`LD … [R##.64]`,
+uncoalesced — 11% excessive sectors) and burns registers on per-thread address arithmetic.
+
+## The optimization
+
+Bake the field **strides and origins as compile-time constants** so the compiler folds the entire
+neighbour-offset address arithmetic to literals → coalesced warp loads + freed address registers →
+higher occupancy without spilling. Opt-in via **`GT4PY_BAKE_STRIDES=1`**.
+
+The values must be the *exact* per-field packed strides/origins — they are **not derivable from the
+grid size**, because the origin-shift / cache-line padding (Opt: `pack_vertex_field_padded`,
+`pack_edge_field_compact` pad IDim to a multiple of `_STRIDE_PAD=32`) makes them per-field (e.g. a
+517-vertex grid packs to stride **528**, not 517). The robust source is the **packed arrays
+themselves**: `GenericStructuredWrapper.__call__` packs (line ~1336) *before* triggering compile
+(line ~1343), so the exact strides/origins are available at compile time.
+
+### Mechanism
+
+1. **`cartesian_interceptor.py`** — `__call__`, after packing, captures per field:
+   - element strides via `_packed_element_strides` (real `ndarray.strides // itemsize`, F-order
+     shape fallback), and
+   - range starts via `_packed_range_starts` (`packed.domain.ranges[i].start` — the *identical*
+     source DaCe binds, see `get_field_domain_symbols`),
+   into `sds["baked_strides"] = {field: [s0,s1,…]}` and `sds["baked_range_starts"] = {field: {dim:
+   start}}` (per-call, set just before `_get_or_compile`).
+2. **`translation.py`** — `_structured_field_stride_constants` (called in the structured opt block
+   when `GT4PY_BAKE_STRIDES=1`) builds the `constant_symbols` dict: it matches each non-transient SDFG
+   array's symbolic strides **by position** to the packed strides, and bakes `__<field>_<dim>_range_0`
+   per field+dim. These feed the existing `gt_substitute_compiletime_symbols`.
+
+### Why it is correct
+
+The baked values are exactly what DaCe binds at call time (strides validated by
+`get_array_stride_symbols`; range_0 identical to `get_field_domain_symbols`), so the kernel computes
+identical addresses — only as folded constants. `TestRBFNABLA4` (compares both outputs to the
+unstructured reference) passes; the stride runtime-check additionally guards every baked stride.
+
+## Results (516 grid, K=50, dace_gpu, GT4Py Timer median)
+
+| Config | median | vs 1.157 ms baseline |
+|--------|--------|----------------------|
+| baseline lb21 (no bake) | 1.157 ms | — |
+| BAKE(strides) lb21 | 1.029 ms | −11% |
+| **BAKE(strides) lb3** | **0.938 ms** | **−19%** |
+| BAKE(strides) lb4 | 0.945 ms | −18% |
+| BAKE(strides+range_0) lb21 | 1.082 ms | −6% |
+
+With strides baked, all `stride` and `range_1` kernel args become literals; only 38 `range_0` args
+remained, which the `range_0` baking also removes (80 symbols baked total → fully-constant
+addressing). The win comes from freeing the address-arithmetic registers so **lb3 (37% occupancy)
+beats lb21 (25%)** — exactly the occupancy unlock the roofline predicted. Coalescing of the warp
+loads is a secondary benefit.
+
+## Files changed (Opt 18)
+
+| File | Change |
+|------|--------|
+| `../gt4py/.../modules/cartesian_interceptor.py` | `_packed_element_strides`, `_packed_range_starts`; capture per-field packed strides/origins in `__call__`; inject `sds["baked_strides"]` / `sds["baked_range_starts"]` in `_get_or_compile` |
+| `../gt4py/.../runners/dace/workflow/translation.py` | `_structured_field_stride_constants(ir, sdfg, symbolic_domain_sizes)` — bake strides (by SDFG-array position) and `range_0` (per field+dim) from the captured values; call gated on `USE_STRUCTURED_BACKEND` + `GT4PY_BAKE_STRIDES` |
+| `commands_stencils_rbf_optsweep_baked.txt` | Original 17-config optsweep with `GT4PY_BAKE_STRIDES=1` prepended, to re-evaluate every optimization with baking (`output/rbf_optsweep_baked/`, job 4705375) |
+
+## Follow-ups
+
+- Re-running the full optsweep with baking (job 4705375) to refresh the optimization comparison table
+  — the per-config medians supersede the un-baked "New-cluster results" table above.
+- Consider making `GT4PY_BAKE_STRIDES` the default for the structured GPU path (strict win, always
+  correct via the exact-packed-stride source).
+- Remove the temporary debug prints (`[FISSION-DBG]`, `[MATERIALIZE-DBG]`, `[BAKE-STRIDES]`) and the
+  leftover `sdfg.save("before_gpu_transformation.sdfg")` once the optsweep confirms no regressions.
