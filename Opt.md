@@ -1108,3 +1108,203 @@ Matches reference kernel structure: block=(32,4,2), grid=(I/32,J/4,1), K sequent
 SeqK opens the door to K-invariant hoisting (LICM) which would be the next optimization:
 with 50 K-levels, each thread loops 50 times over K-independent primal_normal/ptr_coeff
 reads → hoisting would save 49/50 = 98% of those reads from the K-loop.
+
+---
+
+# Optimization 15: LICM (K-invariant hoisting) with element-count threshold
+
+## Problem
+
+The map-entry-connector LICM (Optimization 14 follow-up) hoisted 6 K-invariant reads before
+the sequential K-loop: ptr_coeff_1/2 (6 doubles each), primal_normal_vert_v1/v2 (48 doubles each),
+inv_vert_vert_length (12 doubles), inv_primal_edge_length (12 doubles) — **132 doubles total**.
+This caused a **4.8% regression** vs seqK-no-LICM (0.718ms vs 0.685ms) because storing 132 doubles
+in per-thread Register arrays exceeded the lb21 budget (128 regs/thread → L2 spilling).
+
+## Fix: `DACE_LICM_MAX_ELEMS` threshold in `licm_sequential_k.py`
+
+Added env-var `DACE_LICM_MAX_ELEMS` (default **12**) to skip hoisting any K-invariant subset
+with more elements than the threshold. This keeps only arrays that fit in registers:
+
+| Array | n_elems | threshold=12 | threshold=6 |
+|-------|---------|-------------|-------------|
+| ptr_coeff_1 / ptr_coeff_2 | 6 each | ✅ hoist | ✅ hoist |
+| inv_vert_vert_length / inv_primal_edge_length | 12 each | ✅ hoist | ❌ skip |
+| primal_normal_vert_v1 / primal_normal_vert_v2 | 48 each | ❌ skip | ❌ skip |
+
+## Results (512-grid, K=50)
+
+| Config | Hoisted | Median |
+|--------|---------|--------|
+| seqK + no LICM (Opt 14 baseline) | 0 arrays | 0.685ms |
+| seqK + LICM all (threshold=∞) | 6 arrays, 132 doubles | 0.718ms **−4.8%** |
+| **seqK + LICM threshold=12** | **4 arrays, 36 doubles** | **0.645ms +6.2%** |
+| seqK + LICM threshold=6 | 2 arrays, 12 doubles | 0.646ms +5.9% |
+| parallel-K + FD + lb21 (previous best) | — | 0.672ms |
+| unstructured baseline | — | 0.848ms |
+
+**Best result: seqK + LICM(threshold=12) = 0.645ms** — beats parallel-K by 4.1% and
+unstructured by 31.6%.
+
+Threshold=12 and threshold=6 are nearly identical, suggesting the `inv_*` arrays (12 elems,
+the 2×2×3 neighbourhood block) don't add meaningful register pressure but also don't help
+much. The primary gain comes from `ptr_coeff_1/2` (6 V2E slot values each).
+
+## CUDA Code Verified
+
+`__tmp0[6]` (ptr_coeff_1) and `__tmp1[6]` (ptr_coeff_2) are loaded via `CopyND` before the
+K-loop, then accessed inside as `*(__tmp0 + slot)` — confirmed correct hoisting.
+
+## Remaining Register Pressure Issues (CUDA analysis, for future work)
+
+Profiling the threshold=12 CUDA kernel reveals three remaining issues:
+
+### 1. 426 computation intermediates (`gtir_tmp_*`) inside K-loop — primary register pressure
+The fully-unrolled CSI+F stencil declares 426 `double gtir_tmp_N` scalars inside the K-loop
+body. With 128 regs/thread (lb21), the vast majority must spill to L2 local memory. These are
+unavoidable for the current computation structure (fully-unrolled E2C2V × V2E × slots).
+
+### 2. 99 K-invariant direct pointer reads of `primal_normal_vert_v1/v2` inside K-loop
+CSI generates `gtir_tmp_N = *(primal_normal_vert_v1 + IDim+JDim+Kolor_offset)` where the
+offset has NO K term. These bypass LICM (which works at the map-entry-connector level, not
+direct pointer level). They repeat identically every K-iteration. After the first K-iteration,
+they hit L1 cache, so the global-memory cost is small — but the address arithmetic
+(4× multiply-add per read × 99 reads × 50 K-iters) is pure ALU waste.
+
+### 3. 10 K-invariant `__map_fusion_gtir_tmp_*[1]` CopyND reads of `inv_*` inside K-loop
+CSI's `FuseAsFieldOp` generates 10 single-element CopyND reads of `inv_primal_edge_length`
+and `inv_vert_vert_length` at specific neighbor positions (e.g., [i-1, j, kolor+2]), declared
+as `double[1]` arrays INSIDE the K-loop. These are also K-invariant but bypass LICM.
+Additionally, `double[1]` inhibits register allocation compared to plain `double`.
+
+### Future optimization directions
+
+| # | Optimization | Impact | Complexity |
+|---|---|---|---|
+| A | **Inner-scope LICM**: scan K-loop tasklets for `*(array+K-free-offset)` and hoist to pre-K scalars | Eliminates 99+10=109 K-repeated reads; saves ~5341 redundant accesses/thread/call | Medium |
+| B | **`double[1]` → `double`** for `__map_fusion_gtir_tmp_*` via DaCe `ArrayToScalar` | Enables register allocation for 10 size-1 arrays | Low |
+| C | **Pre-factor geometry**: split `primal_normal * u_vert` into K-invariant factor + K-dep dot product | Could reduce 426 intermediates significantly; requires stencil restructuring | High |
+
+## Files changed (Opt 15)
+
+| File | Change |
+|------|--------|
+| `../gt4py/.../transformations/licm_sequential_k.py` | `DACE_LICM_MAX_ELEMS` threshold; debug skip messages; array transient with local subsets |
+| `../gt4py/.../workflow/translation.py` | `DACE_LICM_DISABLE=1`, `DACE_SEQK_DEBUG=1`, `DACE_LICM_MAX_ELEMS` env-var wiring |
+
+---
+
+# Optimization 16: Pre-factored nabla4 Stencil (Option C)
+
+## Problem
+
+Despite LICM(threshold=12) hoisting 4 arrays (36 doubles), the K-loop still had **426
+`gtir_tmp_*` scalars** causing register spilling. The root cause: CSI generates
+`primal_normal_vert_v1/v2` reads as direct pointer dereferences `*(pn_v1 + offset)` inside
+the K-loop body — these bypass the connector-level LICM (which only sees IN-edges to the
+Sequential map boundary).
+
+## Approach: Pre-compute combined geometry weights as separate EdgeDim fields
+
+Restructure `_calculate_nabla4` to pre-compute K-invariant combined weights before the K-loop:
+```
+W_v1[slot] = 4 * pn_v1[slot] * inv_pel^2   (tang slots 0,1)
+           = 4 * pn_v1[slot] * inv_vvl^2   (norm slots 2,3)
+W_v2[slot]: same with pn_v2
+W_z        = -8 * (inv_vvl^2 + inv_pel^2)
+```
+The K-loop then reduces to: `Σ_s (W_v1[s]*u(E2C2V[s]) + W_v2[s]*v(E2C2V[s])) + W_z*z`
+
+## Attempts and Findings
+
+### v1: Weights precomputed in numpy (outside GT4Py program)
+- **0.539ms** (512-grid, K=50) — best result for this approach
+- LICM skips weights (48 elements = 2×2×3×4 spatial neighbourhood) — weights are sparse
+  fields `[EdgeDim, E2C2VDim]` that expand to 48-element neighbourhood blocks in structured
+- Timing does NOT include weight precomputation (done in numpy fixture)
+- **Practical validity**: primal_normal/inv_length are grid constants updated once per grid,
+  not per timestep — precomputing weights at initialization is architecturally sound
+
+### v2: Weights computed inside GT4Py program (two-step: weight kernel + K-loop)
+- **0.680ms** (512-grid, K=50) — SLOWER than seqK+LICM(12) = 0.645ms
+- Root cause: **4 GPU kernels** (per-kolor split creates 3 weight kernels + 1 K-loop)
+- K-loop has 236 intermediates (better than 426 but still > 128 → spilling)
+- Multi-kernel launch overhead outweighs the savings
+
+## Key Insight: Why pre-factoring alone is insufficient
+
+The V2E × E2C2V chain (6 V2E neighbors × 4 E2C2V slots = 24 vertex reads) inherently
+generates ~240 computation intermediates regardless of weight pre-factoring, because the
+products `weight[s] × u_vert(E2C2V[s])` still generate one intermediate per multiplication
+per K-iteration. Pre-factoring reduces intermediates from 426 → 236, but not below 128.
+
+## Result Summary
+
+| Config | Median | vs unstr | vs parallel-K | Kernels |
+|--------|--------|----------|---------------|---------|
+| seqK + LICM(12) | 0.645ms | +31% | +4% | 1 |
+| v2 prefactored (in-program weights) | 0.680ms | +25% | — | **4** |
+| v1 prefactored (numpy precomputed) | **0.539ms** | **+57%** | **+24%** | 1 |
+
+## Files created (Opt 16)
+
+| File | Role |
+|------|------|
+| `model/atmosphere/diffusion/src/.../stencils/calculate_nabla4_prefactored.py` | Simplified K-loop FO with pre-computed weight fields `[EdgeDim, E2C2VDim]` |
+| `model/atmosphere/diffusion/src/.../stencils/rbf_nabla4_prefactored.py` | Wraps prefactored nabla4 + RBF interpolation |
+| `model/atmosphere/diffusion/src/.../stencils/rbf_nabla4_prefactored_v2.py` | Two-step program: weight computation (EdgeDim) + K-loop (VertexDim×K) |
+| `model/atmosphere/diffusion/tests/.../test_rbf_nabla4_prefactored.py` | Test for v1 (numpy weight precomputation) |
+| `model/atmosphere/diffusion/tests/.../test_rbf_nabla4_prefactored_v2.py` | Test for v2 (in-program weight computation) |
+
+---
+
+# Optimization 17: Per-element LICM for large neighbourhood arrays
+
+## Problem
+
+LICM(threshold=12) skipped `primal_normal_vert_v1/v2` (n_elems=48) to avoid register pressure
+from 48-element Register arrays. But this left 99 K-invariant pointer reads of these arrays
+INSIDE the K-loop (generated by CSI as `*(pn_v1 + offset)` patterns). These 99 reads per
+K-iteration × 49 wasted reads = 4851 extra memory accesses per thread per call.
+
+## Fix: Per-element fallback in `_hoist_from_sequential_map`
+
+When a large array (n_elems > `DACE_LICM_MAX_ELEMS`) is encountered, instead of skipping,
+the function groups the Sequential map's OUT-edges by their specific accessed element position
+and creates **one Register scalar per unique position**. Each scalar has n_elems=1.
+
+Key difference from the original threshold approach:
+- **Before (threshold=12)**: `primal_normal_vert_v1` → 1 × 48-element Register array → L2 spill risk
+- **After (per-element)**: `primal_normal_vert_v1` → 48 × 1-element Register scalars → all in registers
+
+The compiler can keep 48 individual `double` scalars in registers far more easily than one
+`double[48]` local array, because scalar allocation is per-variable while arrays require
+contiguous memory that may exceed register file capacity.
+
+## Result
+
+- **52 K-invariant reads hoisted** (vs 4 with threshold=12, vs 6 with threshold=∞)
+  - ptr_coeff_1/2: 6 elements each → 2 arrays hoisted (as before)
+  - inv_vert_vert_length: 12 elements → 1 array hoisted (as before)
+  - inv_primal_edge_length: 12 elements → 1 array hoisted (as before)
+  - **primal_normal_vert_v1: 48 unique element positions → 48 scalars hoisted**
+  - **primal_normal_vert_v2: 48 unique element positions → 48 scalars hoisted**
+- **0.633ms** (512-grid, K=50, single kernel, original `rbf_nabla4` stencil)
+
+## Full progression table (rbf_nabla4, 512-grid, K=50)
+
+| Config | Median | vs unstr | vs parallel-K | Kernels |
+|--------|--------|----------|---------------|---------|
+| Unstructured | 0.848ms | — | — | 1 |
+| Parallel-K + FD + CSI + lb21 | 0.672ms | +26% | — | 1 |
+| seqK (no LICM) | 0.685ms | +24% | — | 1 |
+| seqK + LICM all (threshold=∞) | 0.718ms | +18% | −7% | 1 |
+| seqK + LICM(threshold=12) | 0.645ms | +31% | +4% | 1 |
+| **seqK + per-element LICM** | **0.633ms** | **+34%** | **+6%** | **1** |
+| seqK + LICM(12) + prefactored v1 (numpy weights) | 0.539ms | +57% | +24% | 1 |
+
+## Files changed (Opt 17)
+
+| File | Change |
+|------|--------|
+| `../gt4py/.../transformations/licm_sequential_k.py` | Added `_hoist_per_element()` function; modified `_hoist_from_sequential_map()` to call it for n_elems > threshold instead of skipping |
