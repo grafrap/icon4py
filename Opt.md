@@ -1507,19 +1507,363 @@ addressing). The win comes from freeing the address-arithmetic registers so **lb
 beats lb21 (25%)** — exactly the occupancy unlock the roofline predicted. Coalescing of the warp
 loads is a secondary benefit.
 
+## Full optsweep with baking (all 17 configs, GT4Py median)
+
+Re-ran the entire optsweep with `GT4PY_BAKE_STRIDES=1`, once at the (now-suboptimal) `lb21` and once
+at the post-baking optimum `lb3=256,3` (`output/rbf_optsweep_baked{,_lb3}/`, jobs 4705375 / 4708325).
+Baking is a **uniform win across every structured config** and shifts the occupancy optimum from
+lb21 to lb3:
+
+| Config | un-baked | baked lb21 | **baked lb3** |
+|--------|----------|------------|---------------|
+| unstructured baseline | 1.472 | 1.474 | 1.472 |
+| FD / F / none / CSI lb | 1.157 | 1.082 | **0.932–0.933** |
+| FDB block64×4×1 | 1.148 | 1.059 | 0.940 |
+| `rbf_nabla4_direct` FD | — | 1.062 | 0.934 |
+| FD **lb82** (spilling) | 6.744 | 4.243 | 4.243 |
+| seqK {F,CSI} maxnreg128 | 1.65 | 1.37 | 1.37 |
+| seqK {F,CSI} at **lb3** | 1.64 | — | 4.4–4.6 (spills) |
+
+**Headline: structured + baking + lb3 = 0.932 ms vs unstructured 1.472 ms → 1.58× faster** (and −19%
+vs the original un-baked structured best of 1.148 ms).
+
+Findings:
+- **All parallel-K configs collapse to ~0.932 ms** at lb3 — FD/F/none/CSI/FDB are within noise. Once
+  baking + lb3 are in place, the other knobs (scan-unroll, JDim-blocking, CSI fusion) are
+  irrelevant; **baking + occupancy dominate**. The hand-written `rbf_nabla4_direct` (0.934) ties the
+  auto-generated path, confirming the CSI codegen is already optimal.
+- **lb3 is the *parallel-K* optimum.** seqK needs ~128 registers (its K-loop hoisting), so the
+  85-register `lb3` cap spills it catastrophically (4.4–4.6 ms); seqK wants `lb21`/`maxnreg128`. This
+  re-confirms seqK is a dead end on this cluster.
+- Baking helps the spilling case most in relative terms (lb82 6.74 → 4.24 ms, −37%), because folding
+  the address arithmetic frees exactly the registers that were spilling.
+
 ## Files changed (Opt 18)
 
 | File | Change |
 |------|--------|
 | `../gt4py/.../modules/cartesian_interceptor.py` | `_packed_element_strides`, `_packed_range_starts`; capture per-field packed strides/origins in `__call__`; inject `sds["baked_strides"]` / `sds["baked_range_starts"]` in `_get_or_compile` |
 | `../gt4py/.../runners/dace/workflow/translation.py` | `_structured_field_stride_constants(ir, sdfg, symbolic_domain_sizes)` — bake strides (by SDFG-array position) and `range_0` (per field+dim) from the captured values; call gated on `USE_STRUCTURED_BACKEND` + `GT4PY_BAKE_STRIDES` |
-| `commands_stencils_rbf_optsweep_baked.txt` | Original 17-config optsweep with `GT4PY_BAKE_STRIDES=1` prepended, to re-evaluate every optimization with baking (`output/rbf_optsweep_baked/`, job 4705375) |
+| `commands_stencils_rbf_optsweep_baked.txt` / `..._baked_lb3.txt` | 17-config optsweep with `GT4PY_BAKE_STRIDES=1` at lb21 and at the optimal lb3 (`output/rbf_optsweep_baked{,_lb3}/`, jobs 4705375 / 4708325) |
 
 ## Follow-ups
 
-- Re-running the full optsweep with baking (job 4705375) to refresh the optimization comparison table
-  — the per-config medians supersede the un-baked "New-cluster results" table above.
+- ✅ Full optsweep with baking re-run (jobs 4705375 / 4708325) — the lb3 table above is the
+  authoritative post-baking comparison and supersedes the un-baked "New-cluster results" table.
 - Consider making `GT4PY_BAKE_STRIDES` the default for the structured GPU path (strict win, always
   correct via the exact-packed-stride source).
 - Remove the temporary debug prints (`[FISSION-DBG]`, `[MATERIALIZE-DBG]`, `[BAKE-STRIDES]`) and the
-  leftover `sdfg.save("before_gpu_transformation.sdfg")` once the optsweep confirms no regressions.
+  leftover `sdfg.save("before_gpu_transformation.sdfg")`.
+
+---
+
+# Optimization 19 (2026-06-24): K-tile thread-coarsening — ILP substitutes for occupancy
+
+## Root cause (ncu on the baked lb3 kernel, 0.932 ms)
+
+After Opt 18 (baking) the fused `rbf_nabla4` GPU kernel is **latency-bound**, not throughput- or
+occupancy-bound. ncu: compute SoL 34%, memory 67% (both < 60% → latency), **`long_scoreboard` stall =
+58.7%** (global-load latency not hidden), 78% of cycles with no eligible warp. Two cheap levers were
+exhausted first:
+
+- **Occupancy push (job 4708807) is spill-limited.** 80 regs is a real floor; forcing fewer regs to
+  gain blocks/SM is net-neutral (lb4 ties lb3) to worse (lb5/lb6 regress). Best was a ~1 % nudge
+  (`maxnreg=72` → 0.924 ms).
+- **Dedup / FMA (job 4708993) mostly inert** — nvcc's backend already CSE's the duplicate `x*x`
+  (the 2nd multiply carries no register/stall attribution in SASS), and the FP64 pipe is only ~38 %
+  utilised, so denser math can't move a latency wall. (`FEG @ lb4` did reach 0.898 ms by shaving
+  enough registers that 50 % occupancy finally paid — a hint that register relief is the lever.)
+
+The kernel runs **one thread per (i, j, kolor, k)** — a single K-level per thread, so a warp has only
+its own neighbour loads in flight. When you can't buy occupancy, the other way to hide load latency is
+**more independent work per thread (ILP / memory-level parallelism)**.
+
+## The optimization — `DACE_KTILE=B` (env-gated, default off)
+
+Block the vertical K dim into per-thread tiles of **B consecutive levels** via the existing
+`LoopBlocking` transform, then **unroll** the inner block. Each GPU thread processes B K-levels whose
+neighbour loads are mutually independent → the hardware overlaps their latencies. As a bonus, the
+K-invariant geometry/coefficients are auto-hoisted *above* the inner loop (LoopBlocking relocates the
+independent nodes) → computed once per thread for all B levels instead of once per level.
+
+`LoopBlocking` produces: outer map `__gtx_coarse_K = 0:N:B` (stays in the GPU grid) + inner
+**Sequential** map `K = coarse·B : Min(N, coarse·B+B)` + hoisted invariants. Wired into
+`gt_auto_optimize(blocking_dim=K, blocking_size=B)`.
+
+### Two bug fixes that made the unroll real (critical)
+
+The whole ILP benefit depends on the inner loop **actually unrolling**, and it took two fixes to get
+there (both verified in SASS — back-edge present ⇒ rolled, absent ⇒ unrolled):
+
+1. **`Map.unroll` is left `False` by LoopBlocking** (its own TODO). Setting it `True` emits
+   `#pragma unroll` — but that alone does nothing because…
+2. …**the inner bound `Min(N, coarse·B+B)` is a runtime value**, which defeats `#pragma unroll`
+   (nvcc keeps a rolled loop with a back-edge → the B loads stay serialized → *no ILP*). The first
+   profiling of K-tiling was therefore an **invalid test** — it measured a rolled loop.
+
+   Fix: when **N is divisible by B** (last block always full), drop the redundant `Min` so the inner
+   range becomes the constant-trip `coarse·B : coarse·B+B-1`. The trip count is then the compile-time
+   constant B and nvcc unrolls for real. Verified against a minimal blocked SDFG that LoopBlocking
+   stores the inclusive stop as `Min(N, coarse·B+B) - 1` (Min integer operand = N exactly). When N is
+   **not** divisible by B the `Min` is kept (correct, just not unrolled).
+
+   **Deployment rule: B must divide K**, or the kernel is catastrophically slow. Measured:
+   `B=2 @ K=51` (51 % 2 ≠ 0 → rolled) = **1.949 ms** vs `B=2 @ K=50` (unrolled) = **0.782 ms** — a
+   2.5× penalty purely from the rolled loop.
+
+## Results (516 grid, dace_gpu, GT4Py Timer median)
+
+| Config | K | median | regs / blocks / occ | note |
+|--------|---|--------|------|------|
+| baseline (parallel-K, no tile) | 50 | 0.932 ms | 80 / 3 / 37.5 % | latency-bound, no ILP |
+| KTILE=2, lb1 | 50 | 1.168 ms | 238 / 1 / 12.5 % | nvcc over-allocates → occ collapse |
+| **KTILE=2, lb2** | 50 | **0.797 ms** | **128 / 2 / 25 % / 0-spill** | ILP win |
+| **KTILE=2 + K_INNER (Opt 20), lb2** | 50 | **0.782 ms** | 128 / 2 / 25 % | best at K=50 |
+| **KTILE=3 + K_INNER, lb2** | 51 | **0.755 ms** | **128 / 2 / 25 % / 0-spill** | best overall (~5 %/lvl faster than B=2) |
+| KTILE=3, lb2 (no layout) | 51 | 0.779 ms | 128 / 2 | layout helps 0.779→0.755 |
+| KTILE=3, lb1 / lb3 | 51 | 1.108 / 1.603 ms | — | wrong occupancy / spill |
+| KTILE=5/10, lb2 | 50 | 1.9–2.1 ms | spills | too big for 128 regs |
+
+### The mechanism, confirmed by SASS + ncu
+
+- **lb2 is the sweet spot, and it's free.** At lb1 nvcc greedily uses **238 registers** (→ 1 block →
+  12.5 % occ). `__launch_bounds__(256,2)` packs the *identical* kernel into **128 registers with zero
+  spilling** (→ 2 blocks → 25 % occ). The SASS is byte-for-byte the same (same 112 loads, same
+  unrolled body) — only the register allocation differs. So 238 was pure waste.
+- **ILP substitutes for occupancy.** Baseline = 80 regs / 37.5 % occ but *no* ILP → 0.932 ms.
+  KTILE=2 = 128 regs / *lower* 25 % occ but **2 independent K-levels/thread** → 0.782 ms. ncu on the
+  winner: **`long_scoreboard` 58.7 % → 36.2 %** — the ILP directly cut the dominant stall.
+- **The optimal B is the largest tile that still fits 128 regs / 2 blocks with no spill.** B=2 and
+  **B=3 both fit 128 regs / 0 spill** (the compiler reuses registers across the unrolled iterations
+  far better than a naive B× estimate); B≥4 spills.
+
+### Optimal-tile bracket (B=2/3/4/6/8 @ K=48, all divisible — job 4712005)
+
+| B | median @ K=48 | note |
+|---|------|------|
+| 2 | 0.707 ms | fits 128 |
+| **3** | **0.619–0.625 ms** | **optimal** — fits 128, 3-level ILP at B=2's occupancy cost |
+| 4 | 0.876 ms | register pressure (spill / 1 block) |
+| 6 / 8 | 1.9 ms | heavy spill |
+
+**B=3 is the ceiling**: the largest tile that fits 128 regs / 2 blocks cleanly. B=4 already regresses.
+At equal K (apples-to-apples), B=3 beats B=2 by ~12 % (0.625 vs 0.707 @ K=48). Tuning rule: **pick the
+largest B that divides K and still fits 128 regs (→ B=3 here)**.
+
+## ncu on the 0.782 ms winner — where the *next* bottleneck moved
+
+`scripts/profile_ncu_ktile.sh` (winning config baked in), report `ncu_out_ktile.ncu-rep`:
+
+- **Latency stall halved** (`long_scoreboard` 58.7 → 36.2 %) ✓, but a **new #2 stall appears:
+  `LG Throttle` (~30 %)** — the load/store pipe is *saturated*. We traded latency stalls for
+  memory-pipe-throttle stalls.
+- **`LG Throttle` is fed by the 10 % uncoalesced accesses.** Source page: every `u_vert`/`v_vert`/
+  `z_nabla2_e` neighbour read is 8.5 % excessive and the `CopyND<double,1>` geometry scalar-gathers
+  are 11 % excessive → extra sectors/wavefronts → LSU throttle. **Coalescing is now a first-order
+  lever** (it wasn't before).
+- **Occupancy gap:** achieved 19.8 % vs theoretical 25 %, flagged as *"highly different execution
+  durations per warp"* → load imbalance (likely the lateral-boundary/halo path).
+- Compute 38 % / memory 49 % — still latency-ish overall, but far more balanced than the baseline.
+
+**Remaining headroom** (both harder than the levers already pulled): (a) coalescing the neighbour
+gather to cut LG Throttle, (b) the occupancy/load-imbalance gap.
+
+### Tried & rejected: warp-row alignment (`DACE_WARP_ALIGN=1`) — the LG Throttle is structural
+
+Hypothesis: the packed `ni = 528` is a multiple of 16 (cache line) but **not 32** (warp = 256 B), so
+warp bases land mid-sector → the ~8–11 % excessive sectors → LG Throttle. Fix attempt: pad the IDim
+axis to a multiple of 32 (→ 544) for every field (geometry CopyND included) so all strides are
+warp-multiples. Implemented in `_make_structured_field` (+ a gated unpack pad-row trim, since the
+index maps use the original ni). Verified the `.cu` strides move to 544 and correctness passes.
+
+**Result: neutral-to-negative** (B=3 @ K48 0.625 → 0.634; B=3 @ K51 0.755 → 0.837; parallel-K 0.932 →
+0.930). **Why it doesn't work:** padding makes the warp base `(di + 16·j + 16·K) mod 32 → di mod 32`
+— constant instead of varying, but still non-zero because `di` is the **V2E/E2C2V neighbour offset**.
+Alignment fixes the stride *base*, not the *per-neighbour offset*, which is the real source of the
+excess sectors. So the uncoalescing is **inherent to the unstructured-neighbour gather** (6 V2E edges
+at 6 scattered offsets), and the +3 % pad memory slightly hurts. Conclusion: **LG Throttle is
+structural** — cutting it would need shared-memory neighbourhood staging or vectorized loads, neither
+controllable at the GT4Py/DaCe pass+packing level. `DACE_WARP_ALIGN` kept gated off as a documented
+dead end.
+
+### Tried & rejected: merging redundant geometry loads (`GT4PY_ENABLE_MISR=1`) — nvcc already CSE's them
+
+The 118 `CopyND<double,1>` in the kernel are all **global geometry scalar-gathers**, and they look
+redundant: `primal_normal_vert_v1`/`v2` are each loaded **48× from only 24 distinct addresses** (2×
+each — the u/v cross-output sharing that GTIR CSE doesn't merge across separate outputs and MapFusion
+then duplicates). `gt_merge_identical_scalar_reads` (`GT4PY_ENABLE_MISR=1`) merges them at the SDFG
+level (reports "merged 54").
+
+**Result: neutral** (B=3 @ K48 0.623 → 0.626; parallel-K 0.932 → 0.933; **lb3 regresses to 1.550**).
+**Why:** the ref and MISR builds have the **identical 132 `LDG.E.64` global loads in SASS** — nvcc's
+backend **already CSE's the duplicate-address reads**, so the source-level 2× redundancy is *not* a
+runtime cost. MISR even *bloats* the source (118 → 168 CopyND) by re-materialising the merged scalars
+per consumer group. It does cut the SDFG register need (128 → 80), but that buys nothing — at lb2 the
+kernel is throttle-bound, not occupancy-bound (2 blocks already saturate), and at lb3 the interaction
+regresses hard. `GT4PY_ENABLE_MISR` kept gated off.
+
+### Tried & rejected: 2D horizontal block, IDim register-tiling, shared-memory staging
+
+Three attempts to attack the LG-Throttle directly, all rejected:
+
+- **2D horizontal block** (`DACE_UNIT_STRIDES_DIMS="IDim,JDim"`, to capture J-direction neighbour
+  reuse in L1): **1.21 ms (~2× worse)**. With the K-near-IDim layout the JDim stride is huge (≈ni·K),
+  so the block's 8 JDim rows land ~25 k elements apart → destroys locality instead of helping.
+- **IDim register-tiling** (`DACE_ITILE=B`, block the warp dim so each thread does B adjacent IDim →
+  wider coalesced loads): **broken.** Blocking the warp/unit-stride dim overflows the GPU grid-z limit
+  (`grid (2,1,131841)` > 65535 → invalid launch) *and* desyncs the neighbour-offset / per-kolor domain
+  bounds (98.5% wrong results). Unlike K (vertical, independent), IDim can't be tiled without
+  reworking the grid assignment + shift machinery. Gated off, marked BROKEN in code.
+- **Shared-memory staging** (`GT4PY_GEOM_SHARED=1`, DaCe `GPUTransformLocalStorage`): **applies to 0
+  maps** — the structured SDFG is GPU_Device grid → per-thread work with no ThreadBlock scope for the
+  transform to act on. And it wouldn't help anyway: the geometry loads are **already coalesced** (warp
+  = 32 consecutive IDim) and **already use the read-only cache** (SASS `LDG.E.64.CONSTANT`); the only
+  exploitable reuse is J-direction, which the layout fights (see 2D block). A working version needs a
+  hand-built ThreadBlock scope + cooperative load + footprint mapping — multi-day from-scratch surgery
+  with evidence it won't pay.
+
+### Meta-finding: the remaining bottleneck is structural — reachable levers are exhausted
+
+Two classes of attempt are **all neutral or broken**:
+1. *Reduce redundant work* — duplicate multiplies (Opt-19 SASS read), redundant global loads (MISR),
+   misaligned strides (WARP_ALIGN): **neutral**, because nvcc's backend already does the CSE /
+   redundant-load elimination / coalescing.
+2. *Improve locality / staging* — 2D block, IDim-tiling, shared memory: **worse or unreachable**,
+   because the K-near-IDim layout (needed for the K-tile win) makes the J reuse axis expensive, and
+   the structured SDFG has no block scope for shared memory.
+
+The genuine remaining cost is the **inherent scattered V2E/E2C2V neighbour gather** — a load-*volume*
+problem (≈132 coalesced, cached loads/thread saturating the LSU → LG-Throttle), not an uncoalescing
+or caching one. Cutting it would require either a different mesh-data layout that makes the J reuse
+cheap (conflicts with the K-tile layout) or hand-built shared-memory cooperative staging (multi-day,
+evidence-against). **Conclusion: the structured DaCe backend is at its practical optimum for
+`rbf_nabla4` at B=3 K-tile = 0.62 ms (~1.9× vs unstructured).** Remaining headroom is bounded and
+structural, documented here as future work.
+
+---
+
+# Optimization 20 (2026-06-24): K-near-IDim memory layout — `DACE_K_INNER_LAYOUT=1`
+
+## Why (memory layout finding)
+
+Structured fields pack `(ni, nj, nkolor, K)` **Fortran-order**, so stride(IDim)=1 (warp-coalesced)
+but **stride(K)=ni·nj·nkolor is the largest — K is the outermost dimension**. A per-thread K-loop
+(Opt 19) therefore strides ~270 k elements (~2 MB) per level → each level's loads land in distinct
+cache lines. K is forced outermost by GT4Py's canonical dim ordering
+(`common.py:_dimension_kind_order`: `HORIZONTAL < LOCAL < VERTICAL`), so the easy reorder
+`[IDim, K, JDim, Kolor]` is blocked (the same wall the shelved "Color rename" hit).
+
+## The optimization
+
+Keep the canonical dims `[IDim, JDim, Kolor, K]` but pack a **strided (non-contiguous) device array**
+so K carries a small stride (= ni) next to IDim, IDim still unit-stride. This makes the B-level K-tile
+loop **cache-local** instead of 2 MB apart. Implemented in `_make_structured_field`
+(`cartesian_interceptor.py`): build the physical buffer `(ni, K, nj, nkolor)` F-contig on device and
+return the `transpose(0,2,3,1)` strided view → strides `IDim=1, JDim=ni·K, Kolor=ni·K·nj, K=ni`.
+
+**Feasibility gate (probed first):** `gtx.as_field` on GPU **C-contiguates a host-numpy view**
+(destroys custom strides) but **preserves the strides of an on-device cupy array**. So the re-layout
+must be built in cupy on-device (the helper does), and the stride-baking (Opt 18) captures whatever
+`.strides` result automatically — no extra wiring. Default off → byte-for-byte unchanged.
+
+## Result
+
+- Standalone (parallel-K, no tile): **0.896 ms vs 0.932 ms baseline (−4 %)** — K stride literal in the
+  `.cu` drops 272976 → 517, confirmed. Even parallel-K benefits (lighter address arithmetic + L2).
+- Combined with the K-tile: 0.797 → **0.782 ms** (B=2), 0.779 → **0.755 ms** (B=3). The two compose:
+  the tile supplies the per-thread K-loop, the layout makes that loop's B loads cache-local.
+
+---
+
+# Optimization 21 (2026-06-24): warp=K — correct, well-motivated, but a DEAD END for this kernel
+
+## The idea (combine memory + algorithm)
+
+The stencils (V2E, E2C2V, …) are **entirely horizontal**; K has **zero neighbour reuse** but the
+geometry/coefficient fields are **K-invariant** (identical for all 50 levels of a vertex). In the
+default layout (warp=IDim) the 50 K-levels of one vertex live in 50 different threads, each
+**re-reading the full geometry** — the dominant redundancy. Making the **warp run along K** (32
+K-levels of one (i,j,kolor) per warp) would: (a) **coalesce** the K-field loads (K unit-stride), and
+(b) turn the K-invariance into a hardware **broadcast** — geometry read once per warp instead of once
+per K (~32× less geometry traffic). This is the full-strength version of the K-tile's 2-fold
+geometry hoist.
+
+## Implementation — `DACE_K_WARP` (env-gated, default off)
+
+- `=1`: C-order packing (K innermost, stride 1) in `_make_structured_field`.
+- `=2`: K innermost **+ IDim second-innermost** (stride = K), Kolor outermost — so the block
+  `(threadIdx.x=K, threadIdx.y=IDim)` is a contiguous tile (locality fix, see below).
+- `translation.py`: flip the iteration order so K → threadIdx.x (warp) and set
+  `unit_strides_kind=VERTICAL` so the SDFG matches the C-order arrays.
+
+Verified correct end-to-end (passes `TestRBFNABLA4`): `.cu` shows `i_K = threadIdx.x`, K stride 1,
+and the geometry access has **no `i_K` term → uniform/broadcast load** across the warp.
+
+## Result — loses to the K-tile, for structural reasons
+
+| variant | best lb | median |
+|---------|---------|--------|
+| warp=K `=1` (Kolor 2nd-innermost) | lb4 | 1.073 ms |
+| warp=K `=2` (IDim 2nd-innermost) | lb4 | **1.007 ms** |
+| K-tile (Opt 19+20) | lb2 | **0.755–0.782 ms** |
+
+- **The 2nd-innermost ordering matters (validated):** `=2` is consistently 5–9 % faster than `=1` at
+  every lb. With `=1` the block extends in IDim (threadIdx.y) while IDim is the memory-*outermost* dim
+  (stride 25850) → the block's 8 rows are 25 k elements apart → no spatial locality. Putting **IDim
+  second-innermost** (matching threadIdx.y) makes the 32K×8IDim block a contiguous ~400-element tile.
+  *Lesson: the block's y-dimension and the memory second-innermost dimension must be the same dim;
+  Kolor (size 1–3) belongs outermost.*
+- **But warp=K plateaus at ~1.01 ms — ~29 % slower than the K-tile**, even with coalescing +
+  broadcast + the locality fix. Structural reasons: (1) **K=50 vs warp-32** → the 2nd warp per column
+  is 56 % full → ~22 % idle lanes baked in; (2) the horizontal reuse is inherently **2-D** (I *and*
+  J) but a K-warp block is only 8-wide in IDim → most neighbour reuse spills to L2, whereas warp=IDim
+  with a 2-D block captures it; (3) the broadcast saves issue slots more than DRAM traffic (geometry
+  was already largely L1-resident). **Keep IDim as the warp/unit-stride dim.**
+
+---
+
+# Dimension-ordering — the combined memory + algorithm picture (summary)
+
+| Dim | Size | Kind | Neighbour offsets | Cross-thread reuse | Best role |
+|-----|------|------|------|------|------|
+| IDim | ~528 | horizontal | small (±1,±2) | yes | **warp / unit-stride** (fills warps, 2-D coalescing) |
+| JDim | ~517 | horizontal | small | yes | block-y or grid |
+| Kolor | 1–3 | horizontal | 0–2 | some | **outermost** (size too small to be warp/2nd) |
+| K | 50 | vertical | **0** | **none** (but K-invariant geometry) | **small per-thread tile (B=2–3)**, cache-local |
+
+**Verdict:** IDim stays the warp/unit-stride dim. K's best role is *not* the warp (warp=K loses) and
+*not* the outermost stride (default, hurts the K-loop) — it is a **small per-thread tile** (Opt 19)
+with a **K-near-IDim stride** (Opt 20). When two dims share a tile/block, the block's 2nd axis must be
+the memory 2nd-innermost dim (Opt 21 lesson).
+
+## Env knob reference (all default off → suite/driver byte-for-byte unchanged)
+
+| Env | Effect |
+|-----|--------|
+| `DACE_KTILE=B` | per-thread K-tile of B levels, unrolled (B must divide K); ILP. lb2 (`DACE_GPU_LAUNCH_BOUNDS="256, 2"`) is the sweet spot |
+| `DACE_K_INNER_LAYOUT=1` | K stride = ni (cache-local K-tile loop), IDim unit-stride |
+| `DACE_K_WARP=1\|2` | warp=K (C-order; `=2` puts IDim 2nd-innermost). Correct but slower — dead end for rbf_nabla4 |
+| `DACE_WARP_ALIGN=1` | pad IDim to a multiple of 32. Correct but neutral-to-negative — dead end (uncoalescing is from the neighbour offset, not row alignment) |
+| `GT4PY_ENABLE_MISR=1` | merge identical global scalar reads. Neutral — nvcc already CSE's them (132 SASS loads either way); dead end |
+| `DACE_ITILE=B` | ⚠️ **BROKEN** — block the IDim warp dim. Overflows grid-z (invalid launch) + wrong results; gated off, documented dead end |
+| `DACE_UNIT_STRIDES_DIMS="IDim,JDim"` | 2D horizontal block. ~2× worse with the K-near-IDim layout (huge JDim stride); dead end |
+| `GT4PY_BAKE_STRIDES=1` | (Opt 18) bake packed strides/origins as compile-time constants; absorbs all of the above layouts automatically |
+
+## Files changed (Opt 19–21)
+
+| File | Change |
+|------|--------|
+| `../gt4py/.../runners/dace/workflow/translation.py` | `_unroll_inner_k_maps(sdfg, tile_size)` (set `Map.unroll`, drop the `Min` clamp when N%B==0 for a constant trip count); `DACE_KTILE` gate (feeds `blocking_dim=K` to auto-opt) + unroll post-pass; `DACE_K_WARP` iteration-order flip + `unit_strides_kind=VERTICAL` |
+| `../gt4py/.../modules/cartesian_interceptor.py` | `_make_structured_field` — `DACE_K_INNER_LAYOUT=1` (K-near-IDim strided view), `DACE_K_WARP=1/2` (C-order / IDim-2nd strided view), `DACE_WARP_ALIGN=1` (pad IDim→mult-of-32, + gated unpack pad-row trim in `_unpack_to_buffer`); all on-device cupy so `as_field` preserves the strides |
+| `commands_stencils_rbf_{occ,exp2,ktile,ktile2,lb2,b5lb2,kwarp,kwarp2,b3,bbracket}.txt` | the sweeps (jobs 4708807 … 4712005) |
+| `scripts/profile_ncu_ktile.sh` | ncu profiling of the winning K-tile config |
+
+## Headline
+
+Baseline (baked, parallel-K) **0.932 ms** → **K-tile B=2 + K-near-IDim + lb2 = 0.782 ms** (−16 %) →
+**K-tile B=3 = champion** (0.755 ms @ K=51; 0.619–0.625 ms @ K=48 — ~12 % faster than B=2 at equal K).
+vs unstructured 1.472 ms ⇒ **~1.9×**. The win is ILP-substitutes-for-occupancy
+(scoreboard 58.7 %→36.2 %), unlocked by a real unroll (constant trip count) at the free lb2 register
+cap, with **B=3 = the largest tile that fits 128 regs** (B≥4 spills). The next bottleneck (LG Throttle
+from the unstructured-neighbour gather) is **structural** — not addressable at the pass/packing level
+(`DACE_WARP_ALIGN` confirmed this; neutral-to-negative).
