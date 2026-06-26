@@ -1846,7 +1846,7 @@ the memory 2nd-innermost dim (Opt 21 lesson).
 | `DACE_WARP_ALIGN=1` | pad IDim to a multiple of 32. Correct but neutral-to-negative — dead end (uncoalescing is from the neighbour offset, not row alignment) |
 | `GT4PY_ENABLE_MISR=1` | merge identical global scalar reads. Neutral — nvcc already CSE's them (132 SASS loads either way); dead end |
 | `DACE_ITILE=B` | ⚠️ **BROKEN** — block the IDim warp dim. Overflows grid-z (invalid launch) + wrong results; gated off, documented dead end |
-| `DACE_UNIT_STRIDES_DIMS="IDim,JDim"` | 2D horizontal block. ~2× worse with the K-near-IDim layout (huge JDim stride); dead end |
+| `DACE_UNIT_STRIDES_DIMS` | **DEFAULT now `"IDim,JDim"`** (Opt 22): K→grid.z (no `ceil(K/8)` waste) + compact IDim×JDim block → **−5 to −16%** across the general Edge/Cell/V2C/V2E suite. ⚠️ rbf_nabla4 / register-heavy gather (+ `DACE_K_INNER_LAYOUT`) are ~2× worse — override those with `DACE_UNIT_STRIDES_DIMS=IDim` |
 | `GT4PY_BAKE_STRIDES=1` | (Opt 18) bake packed strides/origins as compile-time constants; absorbs all of the above layouts automatically |
 
 ## Files changed (Opt 19–21)
@@ -1867,3 +1867,52 @@ vs unstructured 1.472 ms ⇒ **~1.9×**. The win is ILP-substitutes-for-occupanc
 cap, with **B=3 = the largest tile that fits 128 regs** (B≥4 spills). The next bottleneck (LG Throttle
 from the unstructured-neighbour gather) is **structural** — not addressable at the pass/packing level
 (`DACE_WARP_ALIGN` confirmed this; neutral-to-negative).
+
+---
+
+# Optimization 22 (2026-06-26): dimension-order reorder — `IDim,JDim` default for the general suite
+
+## Why
+The old default `DACE_UNIT_STRIDES_DIMS="IDim"` put **K on threadIdx.y** (block `(32,8,1)`), so the GPU
+grid quantizes K to `ceil(K/8)` (K=50→56 ⇒ ~11% wasted/masked threads) and each block's memory footprint
+is a strided IDim×K slab (IDim stride 1, K stride ~10⁶ ⇒ poor L2 locality). NCU on the memory-bound Edge
+stencils showed the real limiter is **Stall Long Scoreboard** (~0.5 eligible warps, waiting on global
+loads) — latency-bound, which better locality directly helps.
+
+## The change
+`_usd_default` flipped `"IDim"` → `"IDim,JDim"` in `translation.py`. Keeps **x=IDim** (warp, stride-1, set
+separately by `gt_change_strides` ⇒ coalescing unchanged) but moves **K off block.y into grid.z**
+(sequential, no `ceil(K/8)`) and puts **JDim on block.y** ⇒ the block now tiles a compact IDim×JDim
+contiguous plane (~4 KB) instead of a ~53 MB strided slab.
+
+## Result (512 grid, GT4Py Timer median, structured, all correctness ✅)
+| Stencil | conn | K | `IDim` | `IDim,JDim` | Δ |
+|---|---|---|---|---|---|
+| apply_2nd | Edge — | 50 | 0.319 | 0.296 | −7.1% |
+| apply_2nd | Edge — | 120 | 0.708 | 0.672 | **−5.2% (pure locality, K÷8)** |
+| add_analysis_to_vn | Edge — | 50/120 | 0.316/0.712 | 0.297/0.675 | −6.0% / −5.1% |
+| apply_rayleigh | Cell — | 50/120 | 0.164/0.358 | 0.154/0.341 | −6.2% / −4.9% |
+| horiz_kinetic | Edge — | 50 | 0.690 | 0.681 | −1.3% (multi-kernel dominated) |
+| interp_cell | C2E | 50 | 0.270 | 0.227 | −15.9% |
+| graddiv2 | E2C2EO | 50 | 0.455 | 0.452 | −0.7% |
+| cells2verts | V2C | 50 | 0.154 | 0.145 | −5.7% |
+| simple_v2e_e2c2v | V2E | 50 | 0.139 | 0.133 | −4.3% |
+
+The −5% at **K=120 (÷8, zero quantization waste)** proves the win is genuine L2 locality, not just
+quantization recovery.
+
+## ⚠️ Exception — rbf_nabla4 must be launched with `DACE_UNIT_STRIDES_DIMS=IDim`
+`IDim,JDim` is **~2.8× worse for rbf_nabla4** (V2E register-heavy gather): **2.8× with rbf's proper
+`lb3` + `DACE_WARP_ALIGN=0` config (0.531→1.502 ms)** and +94% at default config — confirmed real, not an
+lb0 artifact, and consistent with the Opt 21 finding ("2× worse with the K-near-IDim layout"). The gather
++ huge JDim stride under `DACE_K_INNER_LAYOUT` loses badly. So **rbf_nabla4 (and its `_direct` variants)
+keep `DACE_UNIT_STRIDES_DIMS=IDim`**, alongside their existing `DACE_GPU_LAUNCH_BOUNDS="256, 3"` +
+`DACE_WARP_ALIGN=0` overrides. This is a **kernel-class** carve-out, *not* an entity one: V2C
+(cells2verts −5.7%) and the simple V2E stencil (−4.3%) both *gain*, so a "Vertex→IDim" rule would be
+wrong. **rbf_nabla4 is the ONLY carve-out needed** — divrot (V2E), first seen at +6.3%, reconfirmed
+**neutral (+0.2%, within noise)**.
+
+## Files changed
+| File | Change |
+|------|--------|
+| `../gt4py/.../runners/dace/workflow/translation.py` | `_usd_default` `"IDim"` → `"IDim,JDim"`; rbf carve-out noted in the comment |
