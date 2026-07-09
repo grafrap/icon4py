@@ -1,0 +1,64 @@
+=======================================================================================================================================================================================
+  dycore_unstr_120 (v1)  vs  dycore_str_120_auto (v2)
+  Speedup = v1/v2: >1.0 means v2 is FASTER, <1.0 means v2 is SLOWER
+  Timing source: GT4Py Timer median (seconds)
+=======================================================================================================================================================================================
+Stencil                                                                                      Entity            Connectivities     dycore_unstr_120  dycore_str_120_auto  Speedup(v1/v2)
+=======================================================================================================================================================================================
+   AccumulatePrepAdvFields                                                                      Edge              —                             1.258                1.275          0.9867
+   AddAnalysisIncrementsFromDataAssimilation                                                    Cell              —                             0.855                0.843          1.0143
+   AddAnalysisIncrementsToVn                                                                    Edge              —                             0.639                0.666          0.9599
+<< AddExtraDiffusionForWConApproachingCfl                                                       Cell              C2E2CO                        1.119                1.196          0.9355
+>> AddInterpolatedHorizontalAdvectionOfW                                                        Cell+Edge         C2E                           0.769                0.602          1.2775
+   AddTemporalTendenciesToVn                                                                    Edge              —                             1.217                1.256          0.9686
+   AddTemporalTendenciesToVnByInterpolatingBetweenTimeLevels                                    Edge              —                             1.419                1.477          0.9606
+>> AddVerticalWindDerivativeToDivergenceDamping                                                 Cell+Edge         E2C                           1.079                1.027          1.0506
+   Apply2ndOrderDivergenceDamping                                                               Edge              —                             0.638                0.667          0.9563
+<< Apply4thOrderDivergenceDamping                                                               Edge              —                             0.639                0.683          0.9350
+   ApplyRayleighDampingMechanism                                                                Cell              —                             0.328                0.333          0.9852
+   ApplyWeighted2ndAnd4thOrderDivergenceDamping                                                 Edge              —                             0.667                0.686          0.9720
+   ComputeAdvectiveVerticalWindTendency                                                         Cell              —                             0.716                0.714          1.0027
+   ComputeAirmass                                                                               Cell              —                             0.433                0.445          0.9729
+   ComputeApproxOf2ndVerticalDerivativeOfExner                                                  Cell              —                             0.701                0.717          0.9779
+   ComputeContravariantCorrection                                                               Edge              —                             1.015                1.052          0.9650
+>> ComputeContravariantCorrectionOfW                                                            Cell+Edge         C2E                           0.809                0.728          1.1108
+<< ComputeContravariantCorrectionOfWForLowerBoundary                                            Cell+Edge         C2E                           0.026                0.052          0.5072
+>> ComputeDivergenceConnectivityOfFluxesOfRhoAndTheta                                           Cell+Edge         C2E                           1.174                0.965          1.2167
+   ComputeDwdzForDivergenceDamping                                                              Cell              —                             0.583                0.586          0.9945
+<< ComputeExnerFromRhotheta                                                                     Cell              —                             0.600                0.794          0.7554
+   ComputeExplicitPartForRhoAndExner                                                            Cell              —                             1.527                1.539          0.9922
+   ComputeExplicitVerticalWindFromAdvectionAndVerticalWindDensity                               Cell              —                             1.117                1.170          0.9546
+   ComputeExplicitVerticalWindSpeedAndVerticalWindTimesDensity                                  Cell              —                             0.986                1.017          0.9691
+>> ComputeGraddiv2OfVn                                                                          Edge              E2C2EO                        1.062                0.977          1.0865
+   ComputeHorizontalAdvectionTermForVerticalVelocity                                            Cell+Edge+Vertex  E2C,E2V                       1.318                1.385          0.9516
+<< ComputeHorizontalKineticEnergy                                                               Edge              —                             1.097                1.563          0.7019
+   ComputeMassFlux                                                                              Edge              —                             1.250                1.276          0.9801
+   ComputeMaximumCflAndClipContravariantVerticalVelocity                                        Cell              —                             0.685                0.720          0.9520
+   ComputePerturbationOfRhoAndTheta                                                             Cell              —                             0.842                0.847          0.9941
+   ComputePerturbationOfRhoAndThetaAndRhoInterfaceCellCenters                                   Cell              —                             1.135                1.157          0.9806
+   ComputeResultsForThermodynamicVariables                                                      Cell              —                             1.980                2.021          0.9795
+>> ComputeRhoVirtualPotentialTemperaturesAndPressureGradient                                    Cell              —                             2.236                2.115          1.0573
+   ComputeSolverCoefficientsMatrix                                                              Cell              —                             1.111                1.166          0.9521
+>> ComputeTangentialWind                                                                        Edge              C2E,E2C2E                     0.902                0.762          1.1833
+   ComputeVirtualPotentialTemperaturesAndPressureGradient                                       Cell              —                             1.319                1.292          1.0208
+<< ComputeVnOnLateralBoundary                                                                   Edge              —                             0.632                0.675          0.9362
+>> CopyCellKdimFieldToVp                                                                        Cell              —                             0.327                0.008         40.2811
+<< ExtrapolateAtTop                                                                             Edge              —                             0.026                0.047          0.5515
+   ExtrapolateTemporallyExnerPressure                                                           Cell              —                             0.843                0.843          0.9994
+<< FusedVelocityAdvectionStencilVMomentum[compile_time_domain]                                  Cell+Edge+Vertex  C2E,C2E2CO,V2C                4.612               10.334          0.4463
+<< InitCellKdimFieldWithZeroWp[compile_time_domain]                                             Cell              —                             0.158                0.177          0.8913
+<< InitTwoEdgeKdimFieldsWithZeroWp                                                              Edge              —                             0.401                0.514          0.7799
+   InterpolateContravariantVerticalVelocityToFullLevels                                         Cell              —                             0.348                0.366          0.9505
+   InterpolateRhoThetaVToHalfLevelsAndComputePressureBuoyancyAcceleration[compile_time_domain]  Cell              —                             2.188                2.264          0.9665
+>> InterpolateToCellCenter                                                                      Cell+Edge         C2E                           0.655                0.495          1.3237
+   InterpolateToHalfLevelsVp                                                                    Cell              —                             0.443                0.464          0.9550
+   InterpolateToSurface                                                                         Cell              —                             0.482                0.468          1.0300
+   InterpolateVnAndVtToIeAndComputeEkinOnEdges                                                  Edge              —                             1.327                1.391          0.9540
+<< InterpolateVnToHalfLevelsAndComputeKineticEnergyOnEdges                                      Edge              —                             1.069                1.133          0.9439
+<< InterpolateVtToInterfaceEdges                                                                Edge              —                             0.652                0.709          0.9195
+>> MoIconInterpolationScalarCells2vertsScalarRiDsl                                              Cell+Edge+Vertex  V2C                           0.347                0.298          1.1625
+>> MoMathDivrotRotVertexRiDsl                                                                   Edge+Vertex       V2E                           0.392                0.358          1.0944
+=======================================================================================================================================================================================
+
+Summary: 11 faster (>>), 12 slower (<<), 30 within 5% — 53 total stencils
+Note: timings in milliseconds. Speedup = v1/v2.
