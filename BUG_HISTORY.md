@@ -537,3 +537,83 @@ For the edge-kolor-0 SetAt case (also `current_kolor=0` but `setat_is_vertex=Fal
 | dace_cpu | none, compile_time_domain, compile_time_vertical | ✅ all pass |
 
 Existing vertex stencils `mo_math_divrot_rot_vertex_ri_dsl` (V2E) and `mo_icon_interpolation_scalar_cells2verts_scalar_ri_dsl` (V2C) continue to pass on both backends — no regression.
+
+---
+
+## Full diffusion + dycore stencil-sweep audit (2026-06-25) — ⚠️ candidate fixes, validation PENDING
+
+Triggered by the question "do *all* diffusion and dycore stencil tests pass?" — they don't. Audited
+the complete sweeps (`output/dycore_baked_str/` 82 tests, `output/diffusion_baked_str/` 23 tests).
+
+**Important — these are pre-existing structured-backend bugs, NOT caused by the lb0 / warp-align
+perf-default changes.** Proven by comparing the lb0 run (`output/dycore_lb0_str/`) against the baked
+baseline (old `lb 256,8` + warp-align off): the identical set fails in both. The perf defaults are
+orthogonal to correctness.
+
+**Real failures: 16** (dycore 12 + diffusion 4). The 5 dycore "no-result" files are non-failures
+(33/35/36/37 are `skipped`; 77 is exit-code-5 no-collection). Grouped into shared root causes below.
+Each candidate fix is **unverified** until the numerical `assert_dallclose` passes — a compile that
+gets past the crash can still be *masking* malformed IR that yields wrong numbers (see the dyc04
+lesson, and Fix 8 above where a malformed-`deref` had to be fixed in the IR, not tolerated).
+Validation in flight: job **959071** (`output/fixval_str/`, baked-baseline config to isolate the IR
+fix from perf knobs).
+
+### Group A — `'Sentinel' object has no attribute 'deref'` (trace_shifts) → dyc 40, 50
+**Symptom**: during type inference, `trace_stencil` → `_deref(Sentinel.VALUE)` → AttributeError.
+**Root cause**: the structured IR contains `deref(<value>)` (e.g. a literal-0 fallback in a
+degenerate per-kolor branch); trace_shifts' `_deref` assumed a Tracer (iterator).
+**Candidate fix** (`trace_shifts.py`): `_deref` returns `Sentinel.VALUE` for a non-Tracer arg —
+deref of a non-iterator records no shift access pattern; mirrors `_can_deref`, which already returns
+`Sentinel.VALUE` unconditionally. **Risk**: if the `deref(value)` IR is genuinely wrong (not benign),
+this masks it → would show as a numerical mismatch. **Status: PENDING (dyc 40, 50).**
+
+### Group B — iterator-type compatibility too narrow (inference) → dyc 81, 82, dif 03
+**Symptom**: `TypeError: Incompatible inferred type for node z_q` (dyc 81/82, tridiag scan temp) /
+`wᐞ0` (dif 03). `position_dims` are IDENTICAL; only `defined_dims` differ by one dim — z_q: existing
+has trailing `K`, inferred doesn't; wᐞ0: inferred has a stale leading `Cell`, existing doesn't.
+**Root cause**: `_is_structured_remap_compatibility_case` (extended before in Fix 3 / Fix 5) only
+accepted `position_dims` differing by one K; it `return False`s when positions are equal, so these
+benign defined-dims-only artifacts raised.
+**Candidate fix** (`inference.py`): new **Case C** — when `position_dims` are identical (so the
+iteration structure is provably the same), accept a `defined_dims` mismatch of exactly one trailing
+`K` (C1, either direction) or one leading `Edge/Cell/Vertex` (C2, either direction); keep `existing`.
+**Risk**: forces `existing` to win; if `existing` is the wrong type this propagates → wrong numerics.
+**Status: PENDING (dyc 81, 82, dif 03).**
+
+### Group F — `Undefined symbol vertical_start` (trace_shifts) → dif 22
+**Symptom**: trace_shifts `visit_SymRef` raises on `vertical_start`, a free scalar left in a vertical
+`concat_where` condition (`less(K, vertical_start)`); `trace_stencil` ctx only has builtins + iterator
+args.
+**Candidate fix** (`trace_shifts.py`): recognize the four canonical GT4Py domain-bound scalars
+`{horizontal,vertical}_{start,end}` (never iterators) as `Sentinel.VALUE`; keep the general
+undefined-symbol guard for real typos. **Probe**: if dif 22 then fails *numerically*, the vertical
+condition is misplaced and needs a structured-pass fix, not tolerance. **Status: PENDING (dif 22).**
+
+### Group C — `InvalidSDFGEdgeError: Memlet other_subset out-of-bounds`, Kolor index 3 → dyc 20, 21, 25
+**Symptom**: `sdfg.validate()` rejects a memlet whose Kolor subset is `[3 - Kolor_range_0 : 3 -
+Kolor_range_0]` — index **3**, one past the last valid edge kolor (size 3 → 0,1,2). Empty-volume, but
+DaCe flags the OOB offset. All three are E2C2EO/E2C2E edge-to-edge stencils.
+**Root cause (suspected)**: the **trailing-else `concat_where` fallback** in
+`_build_field_concat_where_from_branches` emits a degenerate Kolor-3 subset. This is the danger zone
+documented above (Bug 04 trailing-else: a narrowing there once "passed CPU numerically but SIGSEGVed").
+**Status: NOT fixed — deferred to careful investigation with the saved `_dacegraphs/invalid.sdfgz`.**
+
+### Group D — numerical mismatch `rtol=3e-6` → dyc 12, 15, 45
+**Symptom**: compiles + runs, fails `assert_dallclose` (1 of N parametrizations). Needs per-kolor
+output comparison (`scripts/compare_arrays.py`) to localize. **Status: NOT yet investigated.**
+
+### Test-file issues (not backend)
+- **dyc 04** `add_extra_diffusion_for_normal_wind_tendency_approaching_cfl`: numpy reference had a
+  stray `exit(1)` + header "DOES NOT WORK YET; NEITHER STRUCTURED NOR UNSTRUCTURED." Removing `exit(1)`
+  exposed a real **6.65% mismatch (max rel ~2e9)** → broken reference, confirmed in both backends.
+  **Resolved → `@pytest.mark.skip`** with the evidence (consistent with the 4 already-skipped tests).
+  Definitive confirmation would be an unstructured run (expected to also mismatch).
+- **dyc 39** `compute_horizontal_velocity_quantities_and_fluxes`: the `reference()` calls
+  `compute_avg_vn_and_graddiv_vn_and_vt_numpy(...)` (a sub-step) **without** `horizontal_start`, which
+  became a required positional arg. **Fix**: pass `horizontal_start` (already in `reference()` scope).
+  **Status: PENDING (in validation sweep).**
+
+### Non-bug — flaky infrastructure
+- **dif 13** `calculate_nabla2_for_z`: `CompilationError: ... can't create ...cuda.cu.o: Stale file
+  handle` — a transient Lustre error from the parallel-compile sweep, **not a code bug**. A clean
+  re-run is expected to pass; to be confirmed.

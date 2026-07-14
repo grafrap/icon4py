@@ -1916,3 +1916,243 @@ wrong. **rbf_nabla4 is the ONLY carve-out needed** — divrot (V2E), first seen 
 | File | Change |
 |------|--------|
 | `../gt4py/.../runners/dace/workflow/translation.py` | `_usd_default` `"IDim"` → `"IDim,JDim"`; rbf carve-out noted in the comment |
+
+---
+
+# Optimization 23 (2026-06-27): automatic per-stencil dimension ordering — the Opt 22 blanket default was wrong for two stencil classes
+
+## Why (full K=120 suite falsified the blanket IDim,JDim default)
+The Opt 22 spot-checks were all K-independent elementwise stencils. The full K=120 suites
+(`dycore_str_120` [IDim] vs `dycore_str_120_new` [IDim,JDim] and the diffusion pair) came out a
+wash (dycore median ratio 0.997; diffusion 6 faster / 6 slower). Per-stencil analysis shows two
+regressing classes:
+
+1. **Vertical-dependency (Koff/scan) stencils, −10…−30%**: rho_virtual 0.707, InterpolateRhoThetaV
+   0.730, ComputeResultsForThermo 0.758, ExtrapolateAtTop 0.817. Every regressor has 3–5 `Koff`
+   refs in its source; every gainer has 0. Mechanism: under "IDim", K sits on threadIdx.y so 8
+   consecutive K-levels share a block → k±1 reads hit L1/L2; under "IDim,JDim" K folds into grid.z
+   → vertical reads lose all cache locality.
+2. **E2C2V/C2V gather stencils, −18…−57%**: Nabla2AndSmag 0.425, HorizGradsForTurbulence 0.583,
+   ApplyDiffusionToVn 0.739, Nabla4 0.817 — the rbf_nabla4 class (Opt 21/22); the manual rbf-only
+   carve-out was too narrow. E2C2EO measured neutral/mixed → not part of the rule.
+
+(Comparison caveat: the 4 `COPY_KERNEL_DETECTED` stencils in the new run report compute-only time
+— e.g. CopyCellKdimFieldToVp 12.6 µs — and are not comparable to the old run's totals.)
+
+## The fix — IR-based automatic selection (translation.py)
+At entry of `_generate_sdfg_without_configuring_dace`, the PRE-transform GTIR is walked once
+(`pre_walk_values().if_isinstance(OffsetLiteral)`; pre-transform because the structured passes
+unroll E2C2V into cartesian shifts). Policy at the `_usd_default` site:
+
+- `Koff` offset present OR `column_axis` set (scan) OR `E2C2V`/`C2V` present → `"IDim"`
+- else → `"IDim,JDim"`
+- `DACE_UNIT_STRIDES_DIMS` env override always wins; `DACE_SEQUENTIAL_K=1` unchanged.
+
+Every automatic "IDim" choice prints a greppable audit line:
+`DIM_ORDER: program=<name> order=IDim reason=koff|scan|gather`.
+
+## Compute-only timer note
+Reported GT4Py metric = chrono total − accumulated copy-kernel time (`SDFG_ARG_METRIC_COPY_TIME`
+array filled by SDFG timing states; no report files). First active subtraction per program prints
+`COMPUTE_ONLY_TIMER: program=<name> copy_ms=<x>`. If neither line nor effect appears for a
+copy-kernel stencil, the binary predates the feature → clear `.gt4py_cache`.
+
+# Optimization 24 (2026-07-07): NCU root-cause confirmation for the Opt-23 residual regressions — analysis only, no code changed
+
+Opt 23's automatic classifier (koff/scan/E2C2V/C2V → `IDim`) fixed the originally-diagnosed
+regressors, but the full K=120 suite re-run still showed ~10 residual regressions (5–42%) that
+the classifier doesn't catch: `CalculateHorizontalGradientsForTurbulence` (C2E2CO, −42%),
+`ComputeExnerFromRhotheta` (no connectivity, −30%), plus several more no-connectivity and C2E
+stencils regressing 5–20%. NCU-profiled 4 of these (`IDim` vs `IDim,JDim`, K=50, user's local
+Nsight Compute UI, screenshots in `output/ncu_screenshots/`) to understand why. **No source was
+changed for this — pure diagnostic investigation.**
+
+## Findings
+
+3 of 4 confirm one mechanism; the 4th doesn't reproduce at this profile scale.
+
+| Stencil | Connectivity | Duration `IDim`→`IDim,JDim` | L1 Hit `IDim`→`IDim,JDim` | Notes |
+|---|---|---|---|---|
+| `CalculateHorizontalGradientsForTurbulence` | C2E2CO | 320.8→515.2us (−38%) | 63.9%→29.0% | Compute-bound (54%) → DRAM-bound (91%). Scoreboard stall latency 18.1→30.3 cycles/instr. |
+| `ApplyNabla2AndNabla4ToVn` | none | 439.2→507.5us (−13%) | 38.1%→13.2% | Already DRAM-bound both ways (~90%); total DRAM elapsed cycles +15.5%, matching the slowdown almost exactly. |
+| `TemporaryFieldsForTurbulenceDiagnostics` | C2E | 530.3→622.1us (−15%) | 37.2%→**0.95%** | Near-total L1 collapse. DRAM 79.6%→88.0%. |
+| `ComputeExnerFromRhotheta` | none | 261.5→248.7us (**+5%, no regression**) | 58.8%→61.7% (L2; L1 metric ~0 both ways) | Compute-bound (87–88%, FP64-pipeline-dominated). Contradicts the ~30% regression seen in the full K=120/101-rep suite — likely K-count-dependent (profiled at K=50) or launch-count-noise (only 3 launches here); unresolved, needs a K=120 re-profile. |
+
+**Mechanism (confirmed, broader than originally scoped)**: it isn't specifically about
+neighbor-gather connectivity. Any stencil that reuses K-independent data (geometric coefficients,
+connectivity tables, or just a field that happens to be constant across a block's K-range) across
+nearby K-levels loses that reuse once K moves from `threadIdx.y` (shared block → shared L1) to
+`grid.z` (separate blocks → no L1 sharing). This is why even the connectivity-free
+`ApplyNabla2AndNabla4ToVn` regresses. A purely connectivity-based classifier will structurally
+never catch this class.
+
+## Implication for the classifier (not yet implemented)
+- `C2E2CO` should be added to the gather-detection set — confirmed same failure mode as
+  `E2C2V`/`C2V`.
+- The broader "K-independent reuse" mechanism suggests flipping the default: prefer `IDim` unless
+  a stencil is *proven* to benefit from `IDim,JDim`, rather than opting into `IDim` only for
+  known-bad classes.
+- `ComputeExnerFromRhotheta`'s non-reproduction at K=50 means the classifier question for that
+  stencil is still open — do not add a rule for it based on this data alone.
+
+# Optimization 25 (2026-07-07): NCU on the two heaviest connectivity regressors independent of dim-order — analysis only, no code changed
+
+Opt 23/24 covered regressions caused by the `IDim` vs `IDim,JDim` choice. Separately, filtering
+the K=120 vs-unstructured comparison for neighbor-connectivity stencils that regress heavily
+*regardless* of dim-order (excluding E2C2E/E2C2EO edge-to-edge connectivity, a known separate
+issue) surfaced two standouts not yet explained by anything in Opt 23/24:
+
+- `FusedVelocityAdvectionStencilVMomentum` (test file
+  `test_compute_advection_in_vertical_momentum_equation.py`; connectivity C2E, C2E2CO, V2C) —
+  ratio 0.446 (**-55%**, the single worst regression in the entire K=120 dataset), 4.612ms →
+  10.334ms.
+- `TemporaryFieldForGridPointColdPoolsEnhancement` (test file
+  `test_temporary_field_for_grid_point_cold_pools_enhancement.py`; connectivity C2E2C, E2C) —
+  ratio 0.626 (**-37%**), not previously examined.
+
+NCU-profiled both (`IDim`, `IDim,JDim`, unstructured; user's local Nsight Compute UI,
+screenshots in `output/ncu_screenshots/07_07/`). **No source was changed for this — pure
+diagnostic investigation.** Note: these NCU profiles ran at the `profile_ncu.sh` default
+K≈50 (not the production K=120/grid_514 the regression numbers above come from).
+
+## `compute_advection_in_vertical_momentum_equation` — does NOT reproduce at this scale
+
+| | `IDim` | `IDim,JDim` | unstructured |
+|---|---|---|---|
+| Duration | 68.64us | 66.24us | **150.78us** |
+| L1 Hit Rate | 0.27% | 0.30% | 71.78% |
+| Compute Throughput | 28.52% | 23.04% | 40.35% |
+| Achieved Occupancy | 72.68% | 78.11% | 89.74% |
+
+At K≈50 **structured is 2.2× faster than unstructured** — the opposite direction from the -55%
+regression seen in the full K=120 production run. Both structured variants show near-zero L1 hit
+rate yet still win, so this isn't explained by the Opt 24 cache-locality mechanism either. This
+means the production regression is K-scaling-dependent (this stencil is the most complex one
+profiled so far — three connectivities, a "Fused" mega-kernel) and this profile is not
+representative of it. **Open — needs a K=120-scale NCU profile to see the real bottleneck**; a
+K≈50 profile is a dead end for this specific stencil.
+
+## `temporary_field_for_grid_point_cold_pools_enhancement` — reproduces, and the cause is register pressure, not cache locality
+
+| | `IDim` | `IDim,JDim` | unstructured |
+|---|---|---|---|
+| Duration | 767.10us | 697.06us | **375.55us** (2× faster) |
+| Registers/thread | **62** | **62** | **32** |
+| Theoretical Occupancy | 50% (register-capped) | 50% (register-capped) | 100% |
+| Top bottleneck (Est. Speedup) | Wait Stalls 35% (fixed-latency, not memory) | Wait Stalls 36% | — |
+
+The regression direction matches production here (structured slower both ways). The structured
+kernel uses **exactly double** the registers of unstructured (62 vs 32), which by itself halves
+the theoretical occupancy ceiling (50% vs 100%) — identically for `IDim` and `IDim,JDim`, so this
+is independent of dim-order entirely. The dominant stall reason is "Wait Stalls" (fixed-latency
+execution dependency — not a memory/L1TEX stall), consistent with too few resident warps to hide
+ALU/FMA latency at only 50% occupancy headroom.
+
+This is a **different mechanism than Opt 24's cache-locality story** — it's register pressure
+from how the structured C2E2C (2-hop cell gather) code is generated, not a memory access pattern
+issue. It's the same *class* of problem already diagnosed and fixed once in this project: Opt 13
+("CSI Let-Bindings — Share nabla4 Intermediate Between Tuple Outputs") found that an unshared
+2-hop gather (there: E2C2V inside `rbf_nabla4`) gets duplicated across output branches instead of
+computed once, inflating both instruction count and live-register count. Worth checking whether
+`TemporaryFieldForGridPointColdPoolsEnhancement`'s C2E2C gather has the same unshared-duplication
+pattern before assuming a new root cause.
+
+## Next steps (not started)
+- K=120/grid_514-scale NCU profile for `compute_advection_in_vertical_momentum_equation` to find
+  its real (K-dependent) bottleneck — the K≈50 profile above is not representative.
+- Check `TemporaryFieldForGridPointColdPoolsEnhancement`'s generated SDFG/IR for duplicated
+  C2E2C sub-expressions (the Opt 13 pattern) before pursuing a register-pressure fix.
+
+---
+
+# Optimization 26 (2026-07-10): DACE_KTILE reached the unstructured backend for the first time — `rbf_nabla4`'s real "current best" is K-tile+CSI, not FD+lb3+IDim
+
+## Two separate findings, both confirmed at full production scale (K=120, `parallelogram_514`)
+
+### Finding 1 — the documented "current best" (`test_rbf_nabla4 [99]` in `commands_stencils_diffusion_str_512.txt`) was never actually the fastest measured config
+
+Opt 19–21 (K-tile thread-coarsening + K-near-IDim layout) found a faster structured config than
+what shipped in the production command line, but nobody folded `DACE_KTILE=3` +
+`DACE_K_INNER_LAYOUT=1` into `commands_stencils_diffusion_str_512.txt` afterwards — the file kept
+the pre-K-tile `FD` + `lb3` + `IDim` config as "[99] current best". This session re-ran both, back
+to back, at full K=120/`parallelogram_514` scale (not the K=48–51/`grid_516` scale Opt 19–21 used)
+and confirmed the gap is real and even larger at production scale:
+
+| Label used below | Exact command (env vars only; pytest/grid/backend args identical, see full commands further down) | Median (GT4Py Timer) | vs unstructured default |
+|---|---|---|---|
+| `structured_FD_lb3_IDim` (old "[99] current best", still in `commands_stencils_diffusion_str_512.txt` as of this writing) | `GT4PY_BAKE_STRIDES=1 DACE_OPT_EXPERIMENT=FD DACE_GPU_LAUNCH_BOUNDS="256, 3" DACE_UNIT_STRIDES_DIMS=IDim` | **1.205 ms** | −41.1% |
+| `structured_F_CSI_KTILE3_Kinner_lb2` (**the actual fastest measured `rbf_nabla4` config**) | `GT4PY_BAKE_STRIDES=1 DACE_OPT_EXPERIMENT=F GT4PY_ENABLE_CSI=1 DACE_KTILE=3 DACE_K_INNER_LAYOUT=1 DACE_GPU_LAUNCH_BOUNDS="256, 2"` | **0.867 ms** | −57.6% |
+
+`structured_F_CSI_KTILE3_Kinner_lb2` beats `structured_FD_lb3_IDim` by **28.1%** (0.867 vs 1.205
+ms) — not the ~15–20% Opt 19–21 measured at K=48–51/grid_516; the gap widens at production K/grid
+scale. **Action taken**: `commands_stencils_diffusion_str_512.txt`'s `test_rbf_nabla4 [99]` entry
+updated to `structured_F_CSI_KTILE3_Kinner_lb2` (renumbered `[99]`, old config kept as `[98]` for
+reference — see that file). `analysis_parallelogram_gpu_nabla4.py`'s `PRODUCTION_REFERENCE_POINTS`
+and both violin plots relabeled to name configs by their actual flags, not "current best", per
+explicit request — "current best" drifts out of date exactly like this once, silently.
+
+### Finding 2 — `DACE_KTILE` (and `DACE_OPT_EXPERIMENT`, `DACE_GPU_LAUNCH_BOUNDS`) never reached the unstructured backend at all; fixed in `translation.py`
+
+While building a matched unstructured-vs-structured comparison sweep (default / K-tile / current-
+best, both backends), the three "unstructured" rows produced suspiciously close numbers. Checking
+`.gt4py_cache`: 3 differently-flagged unstructured `pytest` invocations produced **1** distinct
+compiled binary, vs **4** distinct binaries for the 4 differently-flagged structured invocations.
+
+**Root cause**: `_generate_sdfg_without_configuring_dace` in
+`../gt4py/src/gt4py/next/program_processors/runners/dace/workflow/translation.py` had the entire
+`DACE_OPT_EXPERIMENT`/`DACE_KTILE`/`DACE_GPU_LAUNCH_BOUNDS` env-var dispatch (~120 lines) nested
+inside `if USE_STRUCTURED_BACKEND == 1:`. The `else:` (unstructured) branch called
+`gt_auto_optimize(sdfg, gpu=on_gpu, constant_symbols=constant_symbols, **auto_optimize_args)` with
+none of those env vars ever read — every unstructured config compiled identically regardless of
+what was set, silently.
+
+**Fix**: moved the `_exp`/`_extra`/`_ktile`/`_launch_bounds` computation to run unconditionally
+(both backends), and the unstructured `else:` branch now forwards `_extra`/`gpu_launch_bounds`
+into its own `gt_auto_optimize` call, plus applies the same `_unroll_inner_k_maps` K-tile post-
+pass as structured. Two safety constraints kept the change from silently altering the *existing*
+production/test suite (which never sets these env vars for unstructured runs):
+- `"D"` (JDim blocking) is skipped unless `USE_STRUCTURED_BACKEND=="1"` — an unstructured SDFG has
+  no `JDim` (only `Edge`/`Cell`/`Vertex`/`K`), so blocking on it would either no-op or error.
+- The unstructured branch only applies `_extra`/`gpu_launch_bounds` when
+  `"DACE_OPT_EXPERIMENT" in os.environ` / `"DACE_GPU_LAUNCH_BOUNDS" in os.environ` are **explicitly
+  set** — not whenever they hold their defaults (`"FD"`/`"0"`). `DACE_OPT_EXPERIMENT` defaults to
+  `"FD"` and `gpu_launch_bounds="0"` is not the same as gt_auto_optimize's own default `None`
+  (`"0"` emits an explicit `__launch_bounds__(256)`; `None` emits no attribute at all) — forwarding
+  the *defaults* unconditionally would have silently recompiled every unstructured stencil in the
+  suite with different codegen. `DACE_KTILE` needed no such guard (its own default `"0"` already
+  means off, explicit or not).
+
+**Verification**: cleared `.gt4py_cache` before each of the 3 unstructured configs individually
+(one `pytest` invocation per fresh cache — the GT4Py OTF cache key does not vary with these env
+vars for unstructured, unlike structured which explicitly runs with
+`otf_workflow__cached_translation=False`, so a warm cache across sequential commands in one job
+masks the fix). Confirmed via the new `[ktile] (unstructured) B=3, unrolled 2 inner-K map(s)` log
+line and 3 distinct `.gt4py_cache/rbf_nabla4_<hash>` directories.
+
+## Results — full comparison table (GT4Py Timer median, K=120, `parallelogram_514`)
+
+| Label | Full flags (beyond `GT4PY_BAKE_STRIDES=1 PYTHONOPTIMIZE=1 OMP_NUM_THREADS=1`, always set) | Median | vs `unstructured_none_lb0` baseline |
+|---|---|---|---|
+| `structured_none_noCSI_lb0` | `USE_STRUCTURED_BACKEND=1 DACE_OPT_EXPERIMENT=none GT4PY_ENABLE_CSI=0 DACE_GPU_LAUNCH_BOUNDS="0"` | 1.716 ms | −15.7% |
+| `unstructured_none_lb0` (baseline) | `USE_STRUCTURED_BACKEND=0 DACE_OPT_EXPERIMENT=none GT4PY_ENABLE_CSI=0 DACE_GPU_LAUNCH_BOUNDS="0"` | 2.043 ms | — |
+| `structured_F_noCSI_KTILE3_Kinner_lb2` | `USE_STRUCTURED_BACKEND=1 DACE_OPT_EXPERIMENT=F GT4PY_ENABLE_CSI=0 DACE_KTILE=3 DACE_K_INNER_LAYOUT=1 DACE_GPU_LAUNCH_BOUNDS="256, 2"` | 1.492 ms | −27.0% |
+| `unstructured_F_KTILE3_lb2` | `USE_STRUCTURED_BACKEND=0 DACE_OPT_EXPERIMENT=F DACE_KTILE=3 DACE_K_INNER_LAYOUT=1 DACE_GPU_LAUNCH_BOUNDS="256, 2"` (K_INNER_LAYOUT is a no-op for unstructured — structured-only field packing) | **1.713 ms** | **−16.2%** (K-tile genuinely helps unstructured too, once it can reach it) |
+| `structured_F_CSI_KTILE3_Kinner_lb2` (**new current best**) | `USE_STRUCTURED_BACKEND=1 DACE_OPT_EXPERIMENT=F GT4PY_ENABLE_CSI=1 DACE_KTILE=3 DACE_K_INNER_LAYOUT=1 DACE_GPU_LAUNCH_BOUNDS="256, 2"` | **0.867 ms** | **−57.6%** |
+| `structured_FD_lb3_IDim` (old "[99]"; CSI on by default, not explicitly set) | `USE_STRUCTURED_BACKEND=1 DACE_OPT_EXPERIMENT=FD DACE_GPU_LAUNCH_BOUNDS="256, 3" DACE_UNIT_STRIDES_DIMS=IDim` | 1.205 ms | −41.1% |
+| `unstructured_FD_lb3` | `USE_STRUCTURED_BACKEND=0 DACE_OPT_EXPERIMENT=FD DACE_GPU_LAUNCH_BOUNDS="256, 3" DACE_UNIT_STRIDES_DIMS=IDim` (D silently skipped — no JDim on an unstructured SDFG; UNIT_STRIDES_DIMS is also a no-op, structured-only) | 2.015 ms | −1.4% |
+
+Full reproducible commands (same for every row: `pytest -q
+model/atmosphere/diffusion/tests/diffusion/stencil_tests/test_rbf_nabla4.py::TestRBFNABLA4::test_TestRBFNABLA4[compile_time_domain]
+--backend=dace_gpu --grid ../grid_generator/parallelogram_grid_514.nc:120 --maxfail=1 -s`, mesh
+`GT4PY_TRANSLATOR_MESH=.../parallelogram_grid_514.nc`) are in
+`commands_stencils_rbf_nabla4_comparison_k120.txt` and
+`commands_stencils_rbf_nabla4_unstructured_kfix.txt` (icon4py repo root).
+
+## Files changed
+
+| File | Change |
+|---|---|
+| `../gt4py/.../runners/dace/workflow/translation.py` | Moved `_exp`/`_extra`/`_ktile`/`_launch_bounds` computation out of the `USE_STRUCTURED_BACKEND` gate; unstructured `else:` branch now forwards them (explicit-set-only) into its own `gt_auto_optimize` call + K-tile unroll post-pass; `"D"` (JDim) letter guarded to structured-only |
+| `commands_stencils_diffusion_str_512.txt` | `test_rbf_nabla4 [99]` updated to `structured_F_CSI_KTILE3_Kinner_lb2`; old `FD+lb3+IDim` config kept as `[98]` |
+| `icon_structured_benchmark/plot_rbf_final_comparison.py`, `plot_rbf_gt4py_only.py` | Reference points / violin labels renamed from "current best"/"gt4py_RBFNABLA4_structured_FD_auto" to the actual flag string, e.g. `structured_F_CSI_KTILE3_Kinner_lb2` |
+| `commands_stencils_rbf_nabla4_comparison_k120.txt`, `commands_stencils_rbf_nabla4_unstructured_kfix.txt` | New: the 7-row K=120/`parallelogram_514` sweep commands referenced in the table above |
