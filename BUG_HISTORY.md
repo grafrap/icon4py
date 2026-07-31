@@ -617,3 +617,70 @@ output comparison (`scripts/compare_arrays.py`) to localize. **Status: NOT yet i
 - **dif 13** `calculate_nabla2_for_z`: `CompilationError: ... can't create ...cuda.cu.o: Stale file
   handle` — a transient Lustre error from the parallel-compile sweep, **not a code bug**. A clean
   re-run is expected to pass; to be confirmed.
+
+## Re-check 2026-07-31 — thesis benchmark table stencils (structured, DaCe GPU, 512-grid/K=120, FD)
+
+Re-ran the structured backend for every dycore/diffusion stencil still missing from the thesis's
+main speedup tables at the time of measurement, to recover as many as possible for the tables and
+document the rest. Two were recovered; the remaining five reproduce (or supersede) existing
+Group A/C/D/F entries above.
+
+### Recovered — isolating the `compile_time_domain` parametrized variant (now in the main tables)
+- **dyc 12** `apply_divergence_damping_and_update_vn`: confirms **Group D**'s numerical mismatch is
+  specifically the `is_iau_active[False]` sub-case (unstructured 2.057 ms — the "faster one" — vs.
+  structured producing wrong results). `is_iau_active[True]` passes cleanly (unstructured 3.876 ms,
+  structured 9.764 ms, 30 runs). **New finding not previously in Group D**: running the full test
+  file (all `STATIC_PARAMS`, no `-k` filter) additionally hangs indefinitely on the
+  `COMPILE_TIME_VERTICAL` variant (reached "Reference outputs computed", then no further output for
+  2500 s) — unrelated to the Group D mismatch, avoided entirely by filtering to `compile_time_domain`.
+- **dyc 15** `compute_advection_in_horizontal_momentum_equation` (internal class name
+  `FusedVelocityAdvectionStencilsHMomentum`): same pattern as dyc 12 — `apply_extra_diffusion_on_vn
+  [False]` is the faster sub-case that currently produces wrong results (suspected cause: reuses a
+  cached compiled CUDA binary keyed insufficiently to distinguish it from the `[True]` sub-case);
+  `apply_extra_diffusion_on_vn[True]` passes cleanly (unstructured 4.698 ms, structured 7.519 ms, 30
+  runs). This gives a likely root-cause hypothesis for Group D generally: a compiled-artifact cache
+  key that doesn't fully capture which boolean-parametrized branch was compiled.
+
+### Confirmed unchanged — Group C (`InvalidSDFGEdgeError: Memlet other_subset out-of-bounds`)
+- **dyc 20** `compute_averaged_vn_and_fluxes_and_prepare_tracer_advection` and **dyc 21**
+  `compute_avg_vn_and_graddiv_vn_and_vt` both reproduce the exact same error text as documented
+  (`InvalidSDFGEdgeError: Memlet other_subset out-of-bounds`, invalid SDFG dumped to
+  `_dacegraphs/invalid.sdfgz`), on `compile_time_domain`. dyc 21 has no parametrized variants, so
+  there is no alternative sub-case to recover it with. Still **NOT fixed**.
+- **dyc 25** `compute_diagnostics_from_normal_wind`: not confirmed to reproduce the same error —
+  it never got far enough. It timed out with **zero output** after 1000 s (not even reaching the
+  first `STATIC_PARAMS` variant), then after retrying with `-k compile_time_domain` and 3000 s it
+  still timed out with zero output. Given dyc 20/21 (same Group C) compile in ~12 min each, this is
+  either an unusually slow compile or a genuine hang; not distinguished within the time available.
+
+### Symptom changed since originally documented (Group A / Group F) — worth re-triaging
+Both of these no longer show their originally-recorded symptom; a different failure now occurs
+first, suggesting the original bug was fixed upstream but a new blocker sits behind it.
+- **dyc 50** `compute_theta_rho_face_values_and_pressure_gradient_and_update_vn`: Group A recorded
+  `'Sentinel' object has no attribute 'deref'`. Today's re-run instead fails with a **Group
+  B-style** type-inference `TypeError` on the very first collected variant
+  (`is_iau_active[True]-none`): `Incompatible inferred type for node
+  horizontal_pressure_gradient␞0_: existing=Field[[IDim, JDim, Kolor, K], float64],
+  inferred=DeferredType(constraint=None)`. Same shape of error as Group B's `z_q`/`wᐞ0` cases
+  (SSA-renamed node, `existing` vs. `inferred` type mismatch) — likely the same underlying
+  compatibility gap in `_is_structured_remap_compatibility_case`, just untriggered for this node
+  before. `compile_time_domain` specifically was not isolated (masked by `--maxfail=1` on the first
+  variant); worth retrying in isolation, but the error looks structural rather than
+  parametrization-dependent.
+- **dif 22** `truly_horizontal_diffusion_nabla_of_theta_over_steep_points`: Group F recorded
+  `Undefined symbol vertical_start`. Today's re-run instead fails with a `cupy.core.core.ValueError`
+  on buffer allocation, preceded by `RuntimeWarning: overflow encountered in scalar multiply` while
+  computing the padded allocation size. Consistent with this test's `@pytest.mark.uses_as_offset`
+  marker: it reads a data-dependent vertical offset field (`zd_vertoffset`), which likely isn't
+  representable in the structured backend's compile-time-constant-shift model and produces a
+  bogus/oversized domain size instead of a compile-time error.
+
+### New failure mode, not previously documented
+- **dyc 45** `compute_perturbed_quantities_and_interpolation`: Group D listed this as a numerical
+  mismatch, but today's re-run (all `STATIC_PARAMS`, no `-k` filter) fails on the `[none]` variant
+  before `compile_time_domain` is reached, with two chained `KeyError`s instead of a numerical
+  assertion: `KeyError: ((), -2979764658528722721, None)` in
+  `otf/compiled_program.py:419` (a compiled-program cache lookup), followed by `KeyError: SDFGState
+  (stmt_2_false_branch)` in `dace/sdfg/graph.py:676`. Neither the originally-documented mismatch nor
+  the cache-key hypothesis from dyc 12/15 above were confirmed for this stencil specifically;
+  `compile_time_domain` was not isolated. Worth a targeted `-k compile_time_domain` re-run.
